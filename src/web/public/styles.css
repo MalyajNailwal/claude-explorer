@@ -473,6 +473,26 @@ header h1 {
     width: 90%;
     box-shadow: var(--shadow-xl);
     border: 1px solid var(--border);
+    /* Scrollbar styling for visibility */
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+}
+
+.modal-content::-webkit-scrollbar {
+    width: 8px;
+}
+
+.modal-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.modal-content::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+}
+
+.modal-content::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
 }
 
 .modal-close {
@@ -1648,6 +1668,7 @@ a:focus-visible {
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 20px;
+    padding-bottom: 100px; /* extra space for Save button visibility */
     margin: 15px 0;
     box-shadow: var(--shadow-sm);
 }
