@@ -401,7 +401,7 @@
                         <h3>❓ Frequently Asked Questions</h3>
                         <details>
                             <summary>How often should I export my data?</summary>
-                            <p>Export your data whenever you want to backup or analyze your conversations. There's no automatic sync, so export periodically if you want to keep your local copy up-to-date.</p>
+                            <p>Export your data whenever you want to backup or analyze your conversations. Your uploaded data is automatically saved to <code>~/.claude-explorer/data/</code> and persists across server restarts — no need to re-upload after every restart.</p>
                         </details>
                         <details>
                             <summary>Can I search for specific dates?</summary>
@@ -409,15 +409,19 @@
                         </details>
                         <details>
                             <summary>Where is my data stored?</summary>
-                            <p>All data is stored locally in a SQLite database. Your conversations never leave your computer unless you explicitly export and share them.</p>
+                            <p>All data is stored locally on your machine at <code>~/.claude-explorer/data/</code>. Your conversations never leave your computer unless you explicitly export and share them. You can view the exact path in the Upload section of the app.</p>
                         </details>
                         <details>
                             <summary>What's the difference between export formats?</summary>
                             <p>Markdown is human-readable, JSON contains raw data for processing, and ZIP bundles include everything (messages, artifacts, metadata) in a structured archive.</p>
                         </details>
                         <details>
-                            <summary>Can I delete conversations?</summary>
-                            <p>Currently, you can only view and export conversations. To remove conversations, you'll need to use the CLI tools or directly modify the database.</p>
+                            <summary>Can I delete or reset my data?</summary>
+                            <p>Yes! Use the <strong>Reset Data</strong> button in the Upload section to clear all uploaded data from disk. This will remove everything from <code>~/.claude-explorer/data/</code> and revert to the default empty state. You can then upload a fresh ZIP.</p>
+                        </details>
+                        <details>
+                            <summary>Do I need an API key to use the app?</summary>
+                            <p>No — the web interface works without an API key. You only need an <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">OpenRouter API key</a> if you want to use the AI assistant features (natural language queries, smart search). You can set your key in the Settings panel.</p>
                         </details>
                     </div>
 
