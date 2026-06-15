@@ -710,7 +710,7 @@ header h1 {
     background: var(--card-bg);
     border-radius: var(--radius-xl);
     box-shadow: var(--shadow-lg);
-    overflow: hidden;
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
     height: 70vh;
