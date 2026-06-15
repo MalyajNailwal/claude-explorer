@@ -11,7 +11,9 @@ import { MarkdownExporter } from '../core/exporters/markdown.js';
 import { JSONExporter } from '../core/exporters/json.js';
 import { BundleExporter } from '../core/exporters/bundle.js';
 import { ClaudeCodeLibrarian } from '../core/claude-code-librarian.js';
+import { fetchModels, chatCompletion, OpenRouterSettings, OpenRouterMessage } from '../core/openrouter-client.js';
 import { tmpdir } from 'os';
+import { existsSync as fsExistsSync, readFileSync, writeFileSync } from 'fs';
 import multer from 'multer';
 import AdmZip from 'adm-zip';
 import { existsSync, mkdirSync, rmSync } from 'fs';
@@ -35,7 +37,34 @@ let librarian: ClaudeCodeLibrarian | null = null;
 let dataPath: string;
 let uploadedDataPath: string | null = null;
 
-// Configure multer for file uploads
+// Persistent data directory
+const SETTINGS_DIR = join(process.env.HOME || process.env.USERPROFILE || '', '.claude-explorer');
+const PERSISTENT_DATA_DIR = join(SETTINGS_DIR, 'data');
+
+// OpenRouter settings (persisted to disk)
+const SETTINGS_FILE = join(SETTINGS_DIR, 'openrouter-settings.json');
+let openRouterSettings: OpenRouterSettings & { savedAt?: string; expiresAt?: string } = { apiKey: '', model: '' };
+
+function loadSettings() {
+  try {
+    if (fsExistsSync(SETTINGS_FILE)) {
+      const raw = readFileSync(SETTINGS_FILE, 'utf-8');
+      openRouterSettings = JSON.parse(raw);
+    }
+  } catch {}
+}
+
+function saveSettings(settings: OpenRouterSettings & { savedAt?: string; expiresAt?: string }) {
+  if (!fsExistsSync(SETTINGS_DIR)) {
+    mkdirSync(SETTINGS_DIR, { recursive: true });
+  }
+  openRouterSettings = settings;
+  writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+}
+
+loadSettings();
+
+// Configure multer for file uploads (temp during extraction only)
 const uploadDir = join(tmpdir(), 'claude-explorer-uploads');
 if (!existsSync(uploadDir)) {
   mkdirSync(uploadDir, { recursive: true });
@@ -83,6 +112,24 @@ async function initializeData(path: string) {
     console.log(`⚠ AI Assistant not available (Claude Code not found or not authenticated)`);
     console.log(`   To enable: Install Claude Code and run 'claude login'`);
   }
+}
+
+/**
+ * Auto-load persisted data from ~/.claude-explorer/data/
+ */
+async function tryLoadPersistedData(): Promise<boolean> {
+  const convFile = join(PERSISTENT_DATA_DIR, 'conversations.json');
+  if (fsExistsSync(convFile)) {
+    try {
+      console.log(`✓ Found persisted data at: ${PERSISTENT_DATA_DIR}`);
+      uploadedDataPath = PERSISTENT_DATA_DIR;
+      await initializeData(PERSISTENT_DATA_DIR);
+      return true;
+    } catch (error) {
+      console.log(`⚠ Failed to load persisted data:`, error);
+    }
+  }
+  return false;
 }
 
 /**
@@ -280,69 +327,194 @@ app.post('/api/export/batch', async (req: Request, res: Response) => {
 });
 
 /**
- * AI Assistant Routes
+ * OpenRouter Settings & Chat Routes
  */
 
-// Check authentication status
-app.get('/api/assistant/status', (_req: Request, res: Response) => {
+// In-memory conversation history for OpenRouter chat
+let chatHistory: OpenRouterMessage[] = [];
+const SYSTEM_PROMPT = `You are an AI assistant for Claude Explorer — a tool that helps users search, explore, and export their Claude.ai conversation history.
+
+You have access to conversation data and can help users:
+- Search for conversations by topic, date, or content
+- Get details about specific conversations
+- Export conversations in various formats (Markdown, JSON, ZIP)
+- Create knowledge bases from multiple conversations
+- Analyze patterns and topics across conversations
+
+When helping users:
+1. Be conversational and helpful
+2. Ask clarifying questions if needed
+3. Provide clear, actionable responses
+4. Reference specific conversations by UUID when relevant
+5. Suggest useful next steps`;
+
+// Get current settings (API key masked)
+app.get('/api/settings', (_req: Request, res: Response) => {
+  res.json({
+    apiKey: openRouterSettings.apiKey ? 'sk-or-v1-...' + openRouterSettings.apiKey.slice(-4) : '',
+    hasApiKey: !!openRouterSettings.apiKey,
+    model: openRouterSettings.model,
+    savedAt: openRouterSettings.savedAt || null,
+    expiresAt: openRouterSettings.expiresAt || null,
+  });
+});
+
+// Save settings
+app.post('/api/settings', (req: Request, res: Response) => {
+  const { apiKey, model, persistDays } = req.body;
+  if (apiKey !== undefined) openRouterSettings.apiKey = apiKey;
+  if (model !== undefined) openRouterSettings.model = model;
+
+  // Set saved/expiry timestamps
+  const now = new Date();
+  openRouterSettings.savedAt = now.toISOString();
+
+  if (persistDays && persistDays > 0) {
+    const expiry = new Date(now.getTime() + persistDays * 24 * 60 * 60 * 1000);
+    openRouterSettings.expiresAt = expiry.toISOString();
+  } else {
+    openRouterSettings.expiresAt = undefined;
+  }
+
+  saveSettings(openRouterSettings);
+  res.json({ success: true });
+});
+
+// Clear settings
+app.post('/api/settings/clear', (_req: Request, res: Response) => {
+  openRouterSettings = { apiKey: '', model: '' };
+  if (fsExistsSync(SETTINGS_FILE)) {
+    rmSync(SETTINGS_FILE);
+  }
+  res.json({ success: true });
+});
+
+// Fetch available models from OpenRouter
+app.get('/api/models', async (req: Request, res: Response) => {
   try {
-    res.json({
-      authenticated: librarian !== null,
-      model: librarian ? 'Claude Code (Headless)' : null,
-    });
+    const apiKey = (req.query.apiKey as string) || openRouterSettings.apiKey;
+    if (!apiKey) {
+      return res.status(400).json({ error: 'API key required' });
+    }
+    const models = await fetchModels(apiKey);
+    return res.json({ models });
   } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : 'Unknown error',
-      authenticated: false,
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Failed to fetch models',
     });
   }
 });
 
-// Chat with AI assistant
+// Check AI assistant status
+app.get('/api/assistant/status', (_req: Request, res: Response) => {
+  res.json({
+    authenticated: !!openRouterSettings.apiKey,
+    model: openRouterSettings.model || null,
+    provider: openRouterSettings.apiKey ? 'OpenRouter' : null,
+  });
+});
+
+// Chat with AI assistant via OpenRouter
 app.post('/api/assistant/chat', async (req: Request, res: Response) => {
   try {
-    if (!librarian) {
-      // Try to initialize if not already done
-      try {
-        librarian = new ClaudeCodeLibrarian(dataPath);
-        await librarian.initialize();
-      } catch (error) {
-        console.error('AI Assistant initialization error:', error);
-        return res.status(503).json({
-          error: 'AI Assistant not available. Please ensure Claude Code is installed and authenticated.',
-          hint: 'Run: claude login',
-        });
-      }
-    }
-
     const { message } = req.body;
 
     if (!message || typeof message !== 'string') {
       return res.status(400).json({ error: 'Message is required' });
     }
 
-    console.log(`[AI Assistant] Received message: ${message.substring(0, 100)}...`);
-    const response = await librarian.chat(message);
-    console.log(`[AI Assistant] Response: ${response.success ? 'Success' : 'Failed'}`);
-
-    if (response.success) {
-      return res.json({
-        response: response.message,
-      });
-    } else {
-      return res.status(500).json({
-        error: response.error || 'Failed to generate response',
+    if (!openRouterSettings.apiKey) {
+      return res.status(400).json({
+        error: 'OpenRouter API key not configured. Open Settings to add your key.',
       });
     }
+
+    // Check if key has expired
+    if (openRouterSettings.expiresAt) {
+      const expiry = new Date(openRouterSettings.expiresAt);
+      if (expiry < new Date()) {
+        openRouterSettings.apiKey = '';
+        openRouterSettings.model = '';
+        saveSettings(openRouterSettings);
+        return res.status(400).json({
+          error: 'Your API key has expired. Please open Settings and re-enter your key.',
+        });
+      }
+    }
+
+    if (!openRouterSettings.model) {
+      return res.status(400).json({
+        error: 'No model selected. Open Settings to choose a model.',
+      });
+    }
+
+    // Build messages with context
+    const convContext = await buildConversationContext(message);
+    const messages: OpenRouterMessage[] = [
+      { role: 'system', content: SYSTEM_PROMPT + (convContext ? '\n\n' + convContext : '') },
+      ...chatHistory.slice(-20), // last 20 messages for context
+      { role: 'user', content: message },
+    ];
+
+    console.log(`[OpenRouter Chat] model=${openRouterSettings.model} msg="${message.substring(0, 80)}..."`);
+
+    const response = await chatCompletion(
+      { apiKey: openRouterSettings.apiKey, model: openRouterSettings.model },
+      messages,
+      { temperature: 0.7, max_tokens: 4096 }
+    );
+
+    // Save to history
+    chatHistory.push({ role: 'user', content: message });
+    chatHistory.push({ role: 'assistant', content: response.content });
+
+    // Keep history bounded
+    if (chatHistory.length > 40) {
+      chatHistory = chatHistory.slice(-40);
+    }
+
+    console.log(`[OpenRouter Chat] Response: ${response.content.substring(0, 100)}...`);
+
+    return res.json({
+      response: response.content,
+      model: response.model,
+      usage: response.usage,
+    });
   } catch (error) {
-    console.error('[AI Assistant] Chat error:', error);
-    console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
+    console.error('[OpenRouter Chat] Error:', error);
     return res.status(500).json({
-      error: error instanceof Error ? error.message : 'Unknown error',
-      details: error instanceof Error ? error.stack : undefined,
+      error: error instanceof Error ? error.message : 'Failed to generate response',
     });
   }
 });
+
+// Clear chat history
+app.post('/api/assistant/clear', (_req: Request, res: Response) => {
+  chatHistory = [];
+  res.json({ success: true });
+});
+
+// Build conversation context for the AI
+async function buildConversationContext(userMessage: string): Promise<string> {
+  if (!parser) return '';
+  const parts: string[] = [];
+
+  const stats = parser.getStats();
+  parts.push(`Data summary: ${stats.totalConversations} conversations, ${stats.messages.total} messages, ${stats.totalProjects} projects.`);
+
+  // Simple keyword search for context
+  try {
+    const results = indexer.search(userMessage, 5);
+    if (results.length > 0) {
+      parts.push('\nRelevant conversations found:');
+      for (const r of results) {
+        parts.push(`- [${r.conversation.uuid}] "${r.conversation.name || 'Untitled'}" (${r.conversation.chat_messages?.length || 0} messages)`);
+      }
+    }
+  } catch {}
+
+  return parts.join('\n');
+}
 
 /**
  * File Upload Routes
@@ -367,33 +539,20 @@ app.post('/api/upload', upload.single('file'), async (req: Request, res: Respons
       const zip = new AdmZip(file.path);
       zip.extractAllTo(extractPath, true);
 
-      // Validate that required files exist
-      const requiredFiles = ['conversations.json', 'projects.json', 'users.json'];
-      const missingFiles: string[] = [];
-
-      for (const requiredFile of requiredFiles) {
-        const filePath = join(extractPath, requiredFile);
-        if (!existsSync(filePath)) {
-          missingFiles.push(requiredFile);
-        }
-      }
-
-      if (missingFiles.length > 0) {
-        // Clean up
+      // conversations.json is required; projects.json and users.json are optional
+      const convPath = join(extractPath, 'conversations.json');
+      if (!existsSync(convPath)) {
         rmSync(extractPath, { recursive: true, force: true });
         return res.status(400).json({
           error: 'Invalid Claude.ai export file',
-          message: `Missing required files: ${missingFiles.join(', ')}`,
+          message: 'Missing conversations.json — this file is required.',
         });
       }
 
-      // Verify files are valid JSON
+      // Verify conversations.json is valid JSON
       try {
-        for (const requiredFile of requiredFiles) {
-          const filePath = join(extractPath, requiredFile);
-          const fileContent = await readFile(filePath, 'utf-8');
-          JSON.parse(fileContent);
-        }
+        const convContent = await readFile(convPath, 'utf-8');
+        JSON.parse(convContent);
       } catch (parseError) {
         rmSync(extractPath, { recursive: true, force: true });
         return res.status(400).json({
@@ -402,14 +561,30 @@ app.post('/api/upload', upload.single('file'), async (req: Request, res: Respons
         });
       }
 
-      // Clear previous uploaded data if exists
-      if (uploadedDataPath && existsSync(uploadedDataPath)) {
-        rmSync(uploadedDataPath, { recursive: true, force: true });
+      // Create empty array files for any missing optional files
+      for (const optionalFile of ['projects.json', 'users.json']) {
+        const filePath = join(extractPath, optionalFile);
+        if (!existsSync(filePath)) {
+          const { writeFile } = await import('fs/promises');
+          await writeFile(filePath, '[]', 'utf-8');
+        }
       }
 
+      // Clear previous persistent data if exists
+      if (fsExistsSync(PERSISTENT_DATA_DIR)) {
+        rmSync(PERSISTENT_DATA_DIR, { recursive: true, force: true });
+      }
+
+      // Copy extracted data to persistent directory
+      const { cpSync } = await import('fs');
+      cpSync(extractPath, PERSISTENT_DATA_DIR, { recursive: true });
+
+      // Clean up temp extraction
+      rmSync(extractPath, { recursive: true, force: true });
+
       // Update data path and reload
-      uploadedDataPath = extractPath;
-      await initializeData(extractPath);
+      uploadedDataPath = PERSISTENT_DATA_DIR;
+      await initializeData(PERSISTENT_DATA_DIR);
 
       const stats = parser.getStats();
 
@@ -455,12 +630,53 @@ app.get('/api/upload/status', (_req: Request, res: Response) => {
   }
 });
 
+// Get persistent data info (path, stats, exists)
+app.get('/api/data/info', (_req: Request, res: Response) => {
+  try {
+    const exists = fsExistsSync(PERSISTENT_DATA_DIR);
+    let stats = null;
+
+    if (exists && parser) {
+      const s = parser.getStats();
+      stats = {
+        conversations: s.totalConversations,
+        messages: s.messages.total,
+        projects: s.totalProjects,
+      };
+    }
+
+    // Get folder size if exists
+    let sizeKB = 0;
+    if (exists) {
+      try {
+        const { statSync } = require('fs');
+        const convStat = statSync(join(PERSISTENT_DATA_DIR, 'conversations.json'));
+        const projStat = statSync(join(PERSISTENT_DATA_DIR, 'projects.json'));
+        const usrStat = statSync(join(PERSISTENT_DATA_DIR, 'users.json'));
+        sizeKB = Math.round((convStat.size + projStat.size + usrStat.size) / 1024);
+      } catch {}
+    }
+
+    res.json({
+      exists,
+      path: PERSISTENT_DATA_DIR,
+      stats,
+      sizeKB,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
 // Clear uploaded data and revert to default
 app.post('/api/upload/clear', async (_req: Request, res: Response) => {
   try {
-    if (uploadedDataPath && existsSync(uploadedDataPath)) {
-      rmSync(uploadedDataPath, { recursive: true, force: true });
-      console.log(`[Upload] Cleared uploaded data from: ${uploadedDataPath}`);
+    // Remove persistent data
+    if (fsExistsSync(PERSISTENT_DATA_DIR)) {
+      rmSync(PERSISTENT_DATA_DIR, { recursive: true, force: true });
+      console.log(`[Upload] Cleared persistent data from: ${PERSISTENT_DATA_DIR}`);
     }
 
     uploadedDataPath = null;
@@ -486,11 +702,15 @@ app.post('/api/upload/clear', async (_req: Request, res: Response) => {
  */
 export async function startServer(path: string) {
   try {
-    await initializeData(path);
+    // Try loading persisted data first, fall back to provided path
+    const loaded = await tryLoadPersistedData();
+    if (!loaded) {
+      await initializeData(path);
+    }
 
     app.listen(PORT, () => {
       console.log(`\n🚀 Claude Explorer running at http://localhost:${PORT}`);
-      console.log(`   Data path: ${path}`);
+      console.log(`   Data path: ${uploadedDataPath || path}`);
       console.log(`\n   Press Ctrl+C to stop\n`);
     });
   } catch (error) {
