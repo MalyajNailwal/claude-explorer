@@ -453,9 +453,11 @@ header h1 {
     background: rgba(15, 23, 42, 0.6);
     backdrop-filter: blur(4px);
     display: flex;
-    align-items: center;
+    align-items: flex-start; /* allow scroll for tall content */
     justify-content: center;
     z-index: 1000;
+    overflow-y: auto; /* modal scrolls if content exceeds viewport */
+    padding: 40px 20px; /* breathing room */
 }
 
 .modal.hidden {
@@ -467,32 +469,9 @@ header h1 {
     padding: 32px;
     border-radius: var(--radius-xl);
     max-width: 900px;
-    max-height: 85vh;
-    overflow-y: auto;
-    position: relative;
     width: 90%;
     box-shadow: var(--shadow-xl);
     border: 1px solid var(--border);
-    /* Scrollbar styling for visibility */
-    scrollbar-width: thin;
-    scrollbar-color: var(--border) transparent;
-}
-
-.modal-content::-webkit-scrollbar {
-    width: 8px;
-}
-
-.modal-content::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.modal-content::-webkit-scrollbar-thumb {
-    background: var(--border);
-    border-radius: 4px;
-}
-
-.modal-content::-webkit-scrollbar-thumb:hover {
-    background: var(--text-muted);
 }
 
 .modal-close {
@@ -1232,7 +1211,6 @@ header h1 {
 
 .help-modal-content {
     max-width: 900px;
-    max-height: 90vh;
 }
 
 .help-content {
