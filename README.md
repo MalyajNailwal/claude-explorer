@@ -8,20 +8,33 @@
 
 Claude Explorer helps you unlock the value in your Claude.ai conversation history by providing intelligent search, context extraction, and multiple export formats. Perfect for migrating conversations between accounts, creating knowledge bases for Claude Projects, or simply organizing your AI interactions.
 
+## What's New
+
+This fork includes several enhancements and fixes beyond the original project:
+
+- **OpenRouter Integration** — Bring your own API key and choose from 200+ AI models (GPT-4o, Claude, Gemini, Llama, and more) instead of being locked to a single provider
+- **Persistent Data Storage** — Conversation data now persists across server restarts at `~/.claude-explorer/data/`
+- **Searchable Model Selector** — Dropdown with model pricing, context length, and provider grouping
+- **API Key Persistence** — Save your OpenRouter key with configurable expiry (7, 30, 90 days or indefinite)
+- **One-Click Data Reset** — Reset all uploaded data directly from the UI with confirmation
+- **Render Deployment Ready** — Includes `render.yaml` and Dockerfile for one-click cloud deployment
+- **Improved Error Handling** — Graceful fallback when data files are missing; no more startup crashes
+
 ## Features
 
 ### 🤖 AI-Powered Interface
-- **Natural language queries** - Ask questions about your conversations in plain English
-- **Intelligent search** - Find conversations by topic, date, or content with typo-tolerant fuzzy matching
-- **Context-aware responses** - Multi-turn conversations with conversation memory
-- **Auto-export** - Create bundles and exports through natural conversation
+- **Natural language queries** — Ask questions about your conversations in plain English
+- **Intelligent search** — Find conversations by topic, date, or content with typo-tolerant fuzzy matching
+- **Context-aware responses** — Multi-turn conversations with conversation memory
+- **Auto-export** — Create bundles and exports through natural conversation
+- **OpenRouter support** — Use any AI model from OpenRouter's catalog
 
 ### 🔍 Advanced Search & Filtering
-- **Full-text indexing** - Lightning-fast search powered by Lunr.js
-- **Fuzzy matching** - Find results even with typos using FuseJS
-- **Smart ranking** - Most relevant results appear first
-- **Rich filters** - Filter by date range, message count, code presence, and more
-- **Snippet previews** - See context around your search matches
+- **Full-text indexing** — Lightning-fast search powered by Lunr.js
+- **Fuzzy matching** — Find results even with typos using FuseJS
+- **Smart ranking** — Most relevant results appear first
+- **Rich filters** — Filter by date range, message count, code presence, and more
+- **Snippet previews** — See context around your search matches
 
 ### 📊 Data Exploration
 - Browse all conversations and projects
@@ -56,23 +69,20 @@ Claude Explorer helps you unlock the value in your Claude.ai conversation histor
 - Entity recognition
 
 ### 💻 Triple Interface
-- **AI Chat** - Conversational interface powered by Claude Code
-- **CLI** - Fast command-line tool for power users
-- **Web UI** - Beautiful browser interface for visual exploration
+- **AI Chat** — Conversational interface powered by Claude Code or OpenRouter
+- **CLI** — Fast command-line tool for power users
+- **Web UI** — Beautiful browser interface for visual exploration
 
 ## Quick Start
 
 ### Prerequisites
 - Node.js 18 or higher
 - Your Claude.ai export data (see [Getting Your Data](#getting-your-data))
-- **Claude Code CLI** (optional, for AI Assistant features)
-
-> **📖 New to Claude Explorer?** See [SETUP.md](SETUP.md) for detailed setup instructions including Claude Code installation.
 
 ### Installation
 
 ```bash
-git clone https://github.com/paulhshort/claude-explorer.git
+git clone https://github.com/MalyajNailwal/claude-explorer.git
 cd claude-explorer
 npm install
 npm run build
@@ -120,9 +130,9 @@ npm run cli export <uuid> --format markdown -o output.md
 7. Download and extract the ZIP file
 
 Your export will contain:
-- `conversations.json` - All your conversations
-- `projects.json` - All your Claude Projects
-- `users.json` - User information
+- `conversations.json` — All your conversations
+- `projects.json` — All your Claude Projects
+- `users.json` — User information
 
 Place these files in a directory and point Claude Explorer to that directory.
 
@@ -162,7 +172,7 @@ npm run web
 ```
 
 Features:
-- 📤 **Upload your Claude.ai export** - Drag and drop ZIP file upload
+- 📤 **Upload your Claude.ai export** — Drag and drop ZIP file upload
 - Browse all conversations with infinite scroll
 - Full-text search with live results
 - Advanced filters (date range, message count)
@@ -171,7 +181,9 @@ Features:
 - One-click export buttons (Markdown, JSON, ZIP)
 - Batch export for multiple conversations
 - Project explorer
-- 🤖 **AI assistant** - Natural language queries (requires Claude Code CLI)
+- 🤖 **AI assistant** — Natural language queries via OpenRouter or Claude Code
+- ⚙️ **OpenRouter settings** — API key management with persistence and expiry
+- 🔄 **Data reset** — One-click reset from the UI
 
 ### CLI Interface
 
@@ -199,11 +211,11 @@ npm run cli search "API design" --from 2024-01-01 --min-messages 10
 ```
 
 Options:
-- `-p, --path <path>` - Path to data directory (default: current directory)
-- `-l, --limit <number>` - Maximum results (default: 10)
-- `--from <date>` - Filter from date (YYYY-MM-DD)
-- `--to <date>` - Filter to date (YYYY-MM-DD)
-- `--min-messages <number>` - Minimum message count
+- `-p, --path <path>` — Path to data directory (default: current directory)
+- `-l, --limit <number>` — Maximum results (default: 10)
+- `--from <date>` — Filter from date (YYYY-MM-DD)
+- `--to <date>` — Filter to date (YYYY-MM-DD)
+- `--min-messages <number>` — Minimum message count
 
 #### List
 
@@ -214,9 +226,9 @@ npm run cli list projects
 ```
 
 Options:
-- `-l, --limit <number>` - Maximum items (default: 20)
-- `--sort <field>` - Sort by: date, messages, name (default: date)
-- `--messages-only` - Only show conversations with messages
+- `-l, --limit <number>` — Maximum items (default: 20)
+- `--sort <field>` — Sort by: date, messages, name (default: date)
+- `--messages-only` — Only show conversations with messages
 
 #### Export
 
@@ -227,32 +239,25 @@ npm run cli export <uuid> --format bundle -o archive.zip
 ```
 
 Options:
-- `-f, --format <format>` - Export format: markdown, json, bundle (default: markdown)
-- `-o, --output <file>` - Output file path
-- `-t, --type <type>` - Type: conversation or project (default: conversation)
+- `-f, --format <format>` — Export format: markdown, json, bundle (default: markdown)
+- `-o, --output <file>` — Output file path
+- `-t, --type <type>` — Type: conversation or project (default: conversation)
 
 Get UUIDs from the `list` or `search` commands.
 
-## Docker Deployment
+## Deployment
 
-### Using Docker Compose (Recommended)
+### Render (Recommended)
 
-1. Update `docker-compose.yml` with your data path:
+1. Create a [Render account](https://render.com)
+2. Click **New Web Service**
+3. Connect your GitHub repo
+4. Render auto-detects `render.yaml` — settings are pre-filled
+5. Click **Deploy**
 
-```yaml
-volumes:
-  - /path/to/your/claude-export:/data:ro
-```
+Your app will be live at `https://your-app.onrender.com`.
 
-2. Start the container:
-
-```bash
-docker-compose up -d
-```
-
-3. Access at http://localhost:3000
-
-### Using Docker CLI
+### Docker
 
 ```bash
 # Build the image
@@ -262,15 +267,22 @@ docker build -t claude-explorer .
 docker run -d \
   --name claude-explorer \
   -p 3000:3000 \
-  -v "/path/to/your/claude-export:/data:ro" \
   -e DATA_PATH=/data \
   claude-explorer
-
-# View logs
-docker logs -f claude-explorer
 ```
 
-See [DOCKER.md](DOCKER.md) for detailed Docker deployment guide.
+### Docker Compose
+
+```yaml
+services:
+  claude-explorer:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - DATA_PATH=/data
+      - PORT=3000
+```
 
 ## Use Cases
 
@@ -326,7 +338,7 @@ claude-explorer/
 │       └── public/        # Frontend files
 ├── dist/                  # Compiled JavaScript
 ├── Dockerfile
-├── docker-compose.yml
+├── render.yaml
 └── package.json
 ```
 
@@ -423,18 +435,19 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for det
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
+- Original project by [Paul Short](https://github.com/paulhshort)
 - Built with [Node.js](https://nodejs.org/) and [TypeScript](https://www.typescriptlang.org/)
 - Search powered by [Lunr.js](https://lunrjs.com/) and [FuseJS](https://fusejs.io/)
 - Web interface uses [Express](https://expressjs.com/)
-- AI features powered by [Claude API](https://www.anthropic.com/claude)
+- AI features powered by [Claude API](https://www.anthropic.com/claude) and [OpenRouter](https://openrouter.ai/)
 
 ## Support
 
-- Report issues on [GitHub Issues](https://github.com/paulhshort/claude-explorer/issues)
+- Report issues on [GitHub Issues](https://github.com/MalyajNailwal/claude-explorer/issues)
 - Star the repo if you find it useful!
 
 ## Roadmap
@@ -445,7 +458,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [ ] Conversation tagging system
 - [ ] GraphQL API
 - [ ] Real-time collaboration features
+- [ ] Mobile app (Capacitor)
 
 ---
 
-Made with ❤️ by [Paul Short](https://github.com/paulhshort)
+Made with ❤️ by [Malyaj Nailwal](https://github.com/MalyajNailwal)
