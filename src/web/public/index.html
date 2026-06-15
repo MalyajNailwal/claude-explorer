@@ -32,6 +32,29 @@
                     <input type="file" id="file-input" accept=".zip" style="display: none;">
                     <button id="upload-btn" class="btn btn-primary">Choose File</button>
                 </div>
+                <div id="upload-mode-select" class="upload-mode-select hidden">
+                    <p class="upload-mode-title">Existing data detected. How would you like to proceed?</p>
+                    <div class="upload-mode-options">
+                        <label class="upload-mode-option">
+                            <input type="radio" name="upload-mode" value="replace" checked>
+                            <span class="upload-mode-label">
+                                <strong>Replace</strong>
+                                <span>Delete old data, use new ZIP only</span>
+                            </span>
+                        </label>
+                        <label class="upload-mode-option">
+                            <input type="radio" name="upload-mode" value="merge">
+                            <span class="upload-mode-label">
+                                <strong>Merge</strong>
+                                <span>Keep old data + add new conversations</span>
+                            </span>
+                        </label>
+                    </div>
+                    <div class="upload-mode-actions">
+                        <button id="upload-confirm-btn" class="btn btn-primary btn-sm">Upload</button>
+                        <button id="upload-cancel-btn" class="btn btn-sm">Cancel</button>
+                    </div>
+                </div>
                 <div id="upload-status" class="upload-status"></div>
                 <div id="upload-progress" class="upload-progress hidden">
                     <div class="progress-bar">
@@ -48,7 +71,10 @@
                             <span class="data-info-title" id="data-info-stats">Data loaded</span>
                             <span class="data-info-path" id="data-info-path"></span>
                         </div>
-                        <button id="reset-data-btn" class="btn btn-sm btn-danger">Reset Data</button>
+                        <div class="data-info-actions">
+                            <button id="open-folder-btn" class="btn btn-sm btn-secondary">Open Folder</button>
+                            <button id="reset-data-btn" class="btn btn-sm btn-danger">Reset Data</button>
+                        </div>
                     </div>
                 </div>
             </div>

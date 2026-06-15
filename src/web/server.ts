@@ -533,7 +533,8 @@ app.post('/api/upload', upload.single('file'), async (req: Request, res: Respons
     }
 
     const file = req.file;
-    console.log(`[Upload] Processing file: ${file.originalname} (${file.size} bytes)`);
+    const mode = req.body?.mode === 'merge' ? 'merge' : 'replace';
+    console.log(`[Upload] Processing file: ${file.originalname} (${file.size} bytes) [mode: ${mode}]`);
 
     // Create unique directory for this upload
     const extractPath = join(uploadDir, `extract-${Date.now()}`);
@@ -555,9 +556,14 @@ app.post('/api/upload', upload.single('file'), async (req: Request, res: Respons
       }
 
       // Verify conversations.json is valid JSON
+      let newConversations: any[];
       try {
         const convContent = await readFile(convPath, 'utf-8');
-        JSON.parse(convContent);
+        const parsed = JSON.parse(convContent);
+        if (!Array.isArray(parsed)) {
+          throw new Error('conversations.json must be an array');
+        }
+        newConversations = parsed;
       } catch (parseError) {
         rmSync(extractPath, { recursive: true, force: true });
         return res.status(400).json({
@@ -566,38 +572,137 @@ app.post('/api/upload', upload.single('file'), async (req: Request, res: Respons
         });
       }
 
-      // Create empty array files for any missing optional files
+      // Parse optional files
+      let newProjects: any[] = [];
+      let newUsers: any[] = [];
       for (const optionalFile of ['projects.json', 'users.json']) {
         const filePath = join(extractPath, optionalFile);
-        if (!existsSync(filePath)) {
-          const { writeFile } = await import('fs/promises');
-          await writeFile(filePath, '[]', 'utf-8');
+        if (existsSync(filePath)) {
+          try {
+            const content = await readFile(filePath, 'utf-8');
+            const parsed = JSON.parse(content);
+            if (Array.isArray(parsed)) {
+              if (optionalFile === 'projects.json') newProjects = parsed;
+              else newUsers = parsed;
+            }
+          } catch { /* skip invalid optional files */ }
         }
       }
 
-      // Clear previous persistent data if exists
+      if (mode === 'merge' && fsExistsSync(PERSISTENT_DATA_DIR)) {
+        // MERGE MODE: combine old + new, dedup by uuid
+        const { writeFile } = await import('fs/promises');
+
+        // Merge conversations — dedup by uuid, new data wins on conflict
+        const existingConvPath = join(PERSISTENT_DATA_DIR, 'conversations.json');
+        let existingConversations: any[] = [];
+        if (existsSync(existingConvPath)) {
+          try {
+            existingConversations = JSON.parse(await readFile(existingConvPath, 'utf-8'));
+          } catch { /* empty array if corrupt */ }
+        }
+
+        const convMap = new Map<string, any>();
+        for (const c of existingConversations) {
+          if (c.uuid) convMap.set(c.uuid, c);
+        }
+        let addedConv = 0;
+        for (const c of newConversations) {
+          if (c.uuid && !convMap.has(c.uuid)) {
+            addedConv++;
+          }
+          if (c.uuid) convMap.set(c.uuid, c); // new wins on conflict
+        }
+        const mergedConversations = Array.from(convMap.values());
+
+        // Merge projects — dedup by uuid
+        const existingProjPath = join(PERSISTENT_DATA_DIR, 'projects.json');
+        let existingProjects: any[] = [];
+        if (existsSync(existingProjPath)) {
+          try {
+            existingProjects = JSON.parse(await readFile(existingProjPath, 'utf-8'));
+          } catch { /* empty array if corrupt */ }
+        }
+
+        const projMap = new Map<string, any>();
+        for (const p of existingProjects) {
+          if (p.uuid) projMap.set(p.uuid, p);
+        }
+        let addedProj = 0;
+        for (const p of newProjects) {
+          if (p.uuid && !projMap.has(p.uuid)) addedProj++;
+          if (p.uuid) projMap.set(p.uuid, p);
+        }
+        const mergedProjects = Array.from(projMap.values());
+
+        // Merge users — dedup by uuid or email
+        const existingUsersPath = join(PERSISTENT_DATA_DIR, 'users.json');
+        let existingUsers: any[] = [];
+        if (existsSync(existingUsersPath)) {
+          try {
+            existingUsers = JSON.parse(await readFile(existingUsersPath, 'utf-8'));
+          } catch { /* empty array if corrupt */ }
+        }
+
+        const userMap = new Map<string, any>();
+        for (const u of existingUsers) {
+          const key = u.uuid || u.email;
+          if (key) userMap.set(key, u);
+        }
+        for (const u of newUsers) {
+          const key = u.uuid || u.email;
+          if (key) userMap.set(key, u);
+        }
+        const mergedUsers = Array.from(userMap.values());
+
+        // Write merged files
+        await writeFile(existingConvPath, JSON.stringify(mergedConversations, null, 2), 'utf-8');
+        await writeFile(existingProjPath, JSON.stringify(mergedProjects, null, 2), 'utf-8');
+        await writeFile(existingUsersPath, JSON.stringify(mergedUsers, null, 2), 'utf-8');
+
+        rmSync(extractPath, { recursive: true, force: true });
+
+        uploadedDataPath = PERSISTENT_DATA_DIR;
+        await initializeData(PERSISTENT_DATA_DIR);
+
+        const stats = parser.getStats();
+
+        console.log(`[Upload] Merge complete: +${addedConv} conversations, +${addedProj} projects`);
+
+        return res.json({
+          success: true,
+          mode: 'merge',
+          message: `Merged: +${addedConv} new conversations, +${addedProj} new projects (duplicates skipped)`,
+          stats: {
+            conversations: stats.totalConversations,
+            projects: stats.totalProjects,
+            messages: stats.messages.total,
+            addedConversations: addedConv,
+            addedProjects: addedProj,
+          },
+        });
+      }
+
+      // REPLACE MODE: clear old data, copy new (default behavior)
       if (fsExistsSync(PERSISTENT_DATA_DIR)) {
         rmSync(PERSISTENT_DATA_DIR, { recursive: true, force: true });
       }
 
-      // Copy extracted data to persistent directory
       const { cpSync } = await import('fs');
       cpSync(extractPath, PERSISTENT_DATA_DIR, { recursive: true });
 
-      // Clean up temp extraction
       rmSync(extractPath, { recursive: true, force: true });
 
-      // Update data path and reload
       uploadedDataPath = PERSISTENT_DATA_DIR;
       await initializeData(PERSISTENT_DATA_DIR);
 
       const stats = parser.getStats();
 
-      console.log(`[Upload] Successfully loaded data from uploaded file`);
-      console.log(`[Upload] ${stats.totalConversations} conversations, ${stats.totalProjects} projects`);
+      console.log(`[Upload] Replace complete: ${stats.totalConversations} conversations loaded`);
 
       return res.json({
         success: true,
+        mode: 'replace',
         message: 'File uploaded and processed successfully',
         stats: {
           conversations: stats.totalConversations,
@@ -606,7 +711,6 @@ app.post('/api/upload', upload.single('file'), async (req: Request, res: Respons
         },
       });
     } catch (extractError) {
-      // Clean up on error
       if (existsSync(extractPath)) {
         rmSync(extractPath, { recursive: true, force: true });
       }
@@ -671,6 +775,34 @@ app.get('/api/data/info', (_req: Request, res: Response) => {
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// Open data folder in system file manager
+app.post('/api/data/open-folder', (_req: Request, res: Response) => {
+  try {
+    if (!fsExistsSync(PERSISTENT_DATA_DIR)) {
+      res.status(404).json({ error: 'Data folder does not exist' });
+      return;
+    }
+
+    const { execSync } = require('child_process');
+    const platform = process.platform;
+
+    if (platform === 'darwin') {
+      execSync(`open "${PERSISTENT_DATA_DIR}"`);
+    } else if (platform === 'win32') {
+      execSync(`explorer "${PERSISTENT_DATA_DIR}"`);
+    } else {
+      execSync(`xdg-open "${PERSISTENT_DATA_DIR}"`);
+    }
+
+    res.json({ success: true, path: PERSISTENT_DATA_DIR });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to open folder',
+      path: PERSISTENT_DATA_DIR,
     });
   }
 });
