@@ -34,7 +34,6 @@ let parser: ClaudeDataParser;
 let indexer: SearchIndexer;
 let filterEngine: FilterEngine;
 let librarian: ClaudeCodeLibrarian | null = null;
-let dataPath: string;
 let uploadedDataPath: string | null = null;
 
 // Persistent data directory
@@ -90,7 +89,6 @@ const upload = multer({
  * Initialize data
  */
 async function initializeData(path: string) {
-  dataPath = path;
   parser = new ClaudeDataParser(path);
   await parser.load();
 
@@ -687,17 +685,18 @@ app.post('/api/upload/clear', async (_req: Request, res: Response) => {
     }
 
     uploadedDataPath = null;
+    const defaultPath = process.cwd();
 
-    // Create placeholder files in default dataPath so parser can load
+    // Create placeholder files in default path so parser can load
     for (const file of ['conversations.json', 'projects.json', 'users.json']) {
-      const filePath = join(dataPath, file);
+      const filePath = join(defaultPath, file);
       if (!fsExistsSync(filePath)) {
         writeFileSync(filePath, '[]', 'utf-8');
       }
     }
 
     // Reload default data
-    await initializeData(dataPath);
+    await initializeData(defaultPath);
 
     res.json({
       success: true,
