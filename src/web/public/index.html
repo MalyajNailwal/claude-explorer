@@ -31,7 +31,6 @@
                 <div class="upload-controls">
                     <input type="file" id="file-input" accept=".zip" style="display: none;">
                     <button id="upload-btn" class="btn btn-primary">Choose File</button>
-                    <button id="clear-upload-btn" class="btn btn-sm" style="display: none;">Clear Uploaded Data</button>
                 </div>
                 <div id="upload-status" class="upload-status"></div>
                 <div id="upload-progress" class="upload-progress hidden">
@@ -39,6 +38,18 @@
                         <div class="progress-fill" id="progress-fill"></div>
                     </div>
                     <span class="progress-text" id="progress-text">Uploading...</span>
+                </div>
+
+                <!-- Persistent Data Info -->
+                <div id="data-info-panel" class="data-info-panel hidden">
+                    <div class="data-info-row">
+                        <span class="data-info-icon">💾</span>
+                        <div class="data-info-details">
+                            <span class="data-info-title" id="data-info-stats">Data loaded</span>
+                            <span class="data-info-path" id="data-info-path"></span>
+                        </div>
+                        <button id="reset-data-btn" class="btn btn-sm btn-danger">Reset Data</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -161,13 +172,90 @@
         <div class="tab-content hidden" id="assistant-tab">
             <div class="terminal-container">
                 <div class="terminal-header">
-                    <h3>🤖 AI Librarian Assistant</h3>
-                    <p class="terminal-subtitle">Ask questions about your conversations, search for specific topics, or create knowledge bases.</p>
+                    <h3>🤖 AI Assistant</h3>
+                    <p class="terminal-subtitle">Ask questions about your conversations using any model from OpenRouter.</p>
                     <div class="model-info">
-                        <span class="model-badge">Sonnet 4.5</span>
+                        <span class="model-badge" id="current-model-badge">No model selected</span>
                         <span class="status-badge" id="auth-status">Checking...</span>
+                        <button id="open-settings-btn" class="btn btn-sm" style="margin-left: 8px;">Settings</button>
                     </div>
                 </div>
+
+                <!-- Settings Panel (hidden by default) -->
+                <div id="settings-panel" class="settings-panel hidden">
+                    <div class="settings-header">
+                        <h3>OpenRouter Settings</h3>
+                        <button id="close-settings-btn" class="btn-close">&times;</button>
+                    </div>
+
+                    <!-- API Key Section -->
+                    <div class="settings-section">
+                        <label for="api-key-input">API Key</label>
+                        <div class="settings-row">
+                            <input type="password" id="api-key-input" placeholder="sk-or-v1-..." style="flex:1;">
+                            <button id="toggle-key-visibility" class="btn btn-sm">Show</button>
+                        </div>
+                        <div class="settings-hint-row">
+                            <span class="settings-hint">Get your key at <a href="https://openrouter.ai/keys" target="_blank">openrouter.ai/keys</a></span>
+                            <span id="key-saved-info" class="key-saved-info"></span>
+                        </div>
+                    </div>
+
+                    <!-- Persistence Section -->
+                    <div class="settings-section">
+                        <label>Key Persistence</label>
+                        <div class="persistence-options">
+                            <label class="radio-option">
+                                <input type="radio" name="persist-duration" value="0" checked>
+                                <span class="radio-label">Save indefinitely</span>
+                                <span class="radio-desc">Key stays saved until you manually remove it</span>
+                            </label>
+                            <label class="radio-option">
+                                <input type="radio" name="persist-duration" value="7">
+                                <span class="radio-label">7 days</span>
+                                <span class="radio-desc">Auto-clear after 1 week</span>
+                            </label>
+                            <label class="radio-option">
+                                <input type="radio" name="persist-duration" value="30">
+                                <span class="radio-label">30 days</span>
+                                <span class="radio-desc">Auto-clear after 1 month</span>
+                            </label>
+                            <label class="radio-option">
+                                <input type="radio" name="persist-duration" value="90">
+                                <span class="radio-label">90 days</span>
+                                <span class="radio-desc">Auto-clear after 3 months</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Model Selection Section -->
+                    <div class="settings-section">
+                        <label for="model-search-input">Model</label>
+                        <div class="model-selector">
+                            <input type="text" id="model-search-input" placeholder="Search models..." autocomplete="off" disabled>
+                            <div id="model-dropdown" class="model-dropdown hidden">
+                                <div id="model-dropdown-list" class="model-dropdown-list"></div>
+                            </div>
+                        </div>
+                        <input type="hidden" id="model-select" value="">
+                        <div class="settings-hint-row">
+                            <span class="settings-hint" id="model-hint">Enter API key to load models</span>
+                            <button id="refresh-models-btn" class="btn btn-sm" disabled>Refresh</button>
+                        </div>
+                        <div id="selected-model-display" class="selected-model-display hidden">
+                            <span class="selected-dot"></span>
+                            <span id="selected-model-name"></span>
+                            <span id="selected-model-ctx" class="model-ctx-badge"></span>
+                            <span id="selected-model-pricing" class="model-pricing-badge"></span>
+                        </div>
+                    </div>
+
+                    <div class="settings-actions">
+                        <button id="save-settings-btn" class="btn btn-primary">Save Settings</button>
+                        <button id="clear-settings-btn" class="btn btn-sm btn-danger">Clear Key</button>
+                    </div>
+                </div>
+
                 <div class="terminal-output" id="terminal-output">
                     <div class="terminal-message system-message">
                         <div class="message-icon">ℹ️</div>
@@ -179,7 +267,8 @@
                             • <strong>Export content:</strong> "Export conversations about TypeScript as markdown"<br>
                             • <strong>Create bundles:</strong> "Create a knowledge base about authentication"<br>
                             • <strong>Analyze patterns:</strong> "What topics do I discuss most?"<br><br>
-                            Type your question below to get started!
+                            <strong>Setup:</strong> Click "Settings" above to enter your OpenRouter API key and choose a model.<br>
+                            Get a free key at <a href="https://openrouter.ai/keys" target="_blank">openrouter.ai/keys</a>
                         </div>
                     </div>
                 </div>
@@ -271,7 +360,7 @@
 
                     <div class="help-section">
                         <h3>🤖 AI Assistant</h3>
-                        <p>The AI Librarian helps you analyze and organize your conversations:</p>
+                        <p>The AI Assistant helps you analyze and organize your conversations:</p>
                         <ul>
                             <li><strong>Search:</strong> "Find conversations about React from 2024"</li>
                             <li><strong>Details:</strong> "Show me conversation details for [UUID]"</li>
@@ -281,12 +370,13 @@
                         </ul>
                         <p><strong>Setup Required:</strong></p>
                         <ol style="margin-top: 8px; padding-left: 20px;">
-                            <li>Install <strong>Claude Code CLI</strong> from <a href="https://github.com/anthropics/claude-code" target="_blank" rel="noopener">github.com/anthropics/claude-code</a></li>
-                            <li>Authenticate: <code class="inline-code">claude login</code></li>
-                            <li>Restart this web server</li>
-                            <li>Check status badge shows "Authenticated"</li>
+                            <li>Get an API key from <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a></li>
+                            <li>In the AI Assistant tab, click <strong>Settings</strong></li>
+                            <li>Paste your API key and click <strong>Refresh</strong> to load models</li>
+                            <li>Select any model from the dropdown (free and paid options available)</li>
+                            <li>Click <strong>Save Settings</strong> and start chatting</li>
                         </ol>
-                        <p style="margin-top: 12px;"><em>The AI Assistant uses Claude Sonnet 4.5 via Claude Code headless mode. See <a href="#" onclick="alert('Check SETUP.md for detailed Claude Code installation instructions'); return false;">SETUP.md</a> for detailed setup instructions.</em></p>
+                        <p style="margin-top: 12px;"><em>Powered by OpenRouter — supports GPT-4o, Claude, Gemini, Llama, and hundreds more models.</em></p>
                     </div>
 
                     <div class="help-section">

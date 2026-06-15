@@ -23,6 +23,31 @@ const selectedCountSpan = document.getElementById('selected-count');
 const helpBtn = document.getElementById('help-btn');
 const helpModal = document.getElementById('help-modal');
 
+// Settings panel elements
+const openSettingsBtn = document.getElementById('open-settings-btn');
+const settingsPanel = document.getElementById('settings-panel');
+const apiKeyInput = document.getElementById('api-key-input');
+const toggleKeyVisibility = document.getElementById('toggle-key-visibility');
+const modelSearchInput = document.getElementById('model-search-input');
+const modelDropdown = document.getElementById('model-dropdown');
+const modelDropdownList = document.getElementById('model-dropdown-list');
+const modelSelectHidden = document.getElementById('model-select');
+const refreshModelsBtn = document.getElementById('refresh-models-btn');
+const modelHint = document.getElementById('model-hint');
+const saveSettingsBtn = document.getElementById('save-settings-btn');
+const closeSettingsBtn = document.getElementById('close-settings-btn');
+const clearSettingsBtn = document.getElementById('clear-settings-btn');
+const currentModelBadge = document.getElementById('current-model-badge');
+const selectedModelDisplay = document.getElementById('selected-model-display');
+const selectedModelName = document.getElementById('selected-model-name');
+const selectedModelCtx = document.getElementById('selected-model-ctx');
+const selectedModelPricing = document.getElementById('selected-model-pricing');
+const keySavedInfo = document.getElementById('key-saved-info');
+
+// Local model cache
+let allModels = [];
+let filteredModels = [];
+
 // Advanced filter elements
 const toggleAdvancedFilters = document.getElementById('toggle-advanced-filters');
 const advancedFilters = document.getElementById('advanced-filters');
@@ -41,11 +66,17 @@ const uploadStatus = document.getElementById('upload-status');
 const uploadProgress = document.getElementById('upload-progress');
 const progressFill = document.getElementById('progress-fill');
 const progressText = document.getElementById('progress-text');
+const dataInfoPanel = document.getElementById('data-info-panel');
+const dataInfoStats = document.getElementById('data-info-stats');
+const dataInfoPath = document.getElementById('data-info-path');
+const resetDataBtn = document.getElementById('reset-data-btn');
 
 // Initialize
 checkUploadStatus();
 loadStats();
 loadConversations();
+loadSettings();
+loadDataInfo();
 
 // Event listeners
 searchBtn.addEventListener('click', handleSearch);
@@ -70,6 +101,11 @@ if (fileInput) {
 
 if (clearUploadBtn) {
   clearUploadBtn.addEventListener('click', handleClearUpload);
+}
+
+// Reset data button
+if (resetDataBtn) {
+  resetDataBtn.addEventListener('click', handleResetData);
 }
 
 // Advanced filter event listeners
@@ -108,6 +144,78 @@ if (helpModal) {
   }
   helpModal.addEventListener('click', (e) => {
     if (e.target === helpModal) closeHelp();
+  });
+}
+
+// Settings panel event listeners
+if (openSettingsBtn) {
+  openSettingsBtn.addEventListener('click', () => {
+    settingsPanel.classList.toggle('hidden');
+  });
+}
+
+if (toggleKeyVisibility) {
+  toggleKeyVisibility.addEventListener('click', () => {
+    const isPassword = apiKeyInput.type === 'password';
+    apiKeyInput.type = isPassword ? 'text' : 'password';
+    toggleKeyVisibility.textContent = isPassword ? 'Hide' : 'Show';
+  });
+}
+
+if (refreshModelsBtn) {
+  refreshModelsBtn.addEventListener('click', loadModels);
+}
+
+if (saveSettingsBtn) {
+  saveSettingsBtn.addEventListener('click', saveSettings);
+}
+
+if (closeSettingsBtn) {
+  closeSettingsBtn.addEventListener('click', () => {
+    settingsPanel.classList.add('hidden');
+  });
+}
+
+if (clearSettingsBtn) {
+  clearSettingsBtn.addEventListener('click', clearSettings);
+}
+
+// Auto-load models when API key is entered
+if (apiKeyInput) {
+  let debounceTimer;
+  apiKeyInput.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    const key = apiKeyInput.value.trim();
+    if (key.length > 10 && key.startsWith('sk-or')) {
+      refreshModelsBtn.disabled = false;
+      modelSearchInput.disabled = false;
+      debounceTimer = setTimeout(loadModels, 800);
+    } else {
+      refreshModelsBtn.disabled = true;
+      modelSearchInput.disabled = true;
+    }
+  });
+}
+
+// Searchable model dropdown
+if (modelSearchInput) {
+  modelSearchInput.addEventListener('focus', () => {
+    if (allModels.length > 0) {
+      modelDropdown.classList.remove('hidden');
+      filterModels(modelSearchInput.value);
+    }
+  });
+
+  modelSearchInput.addEventListener('input', () => {
+    filterModels(modelSearchInput.value);
+    modelDropdown.classList.remove('hidden');
+  });
+
+  // Close dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!modelSearchInput.contains(e.target) && !modelDropdown.contains(e.target)) {
+      modelDropdown.classList.add('hidden');
+    }
   });
 }
 
@@ -1271,23 +1379,21 @@ async function checkAuthStatus() {
 
     if (authStatus) {
       if (data.authenticated) {
-        authStatus.textContent = '✓ Authenticated';
+        authStatus.textContent = `Connected (${data.provider})`;
         authStatus.className = 'status-badge authenticated';
+        if (currentModelBadge && data.model) {
+          currentModelBadge.textContent = data.model;
+        }
       } else {
-        authStatus.textContent = '✗ Not Authenticated';
+        authStatus.textContent = 'Not connected';
         authStatus.className = 'status-badge error';
-        addTerminalMessage(
-          'error',
-          '⚠️',
-          '<strong>Authentication Required</strong><br>The AI assistant requires authentication. Please ensure your API key is configured.'
-        );
       }
     }
     return data.authenticated;
   } catch (error) {
     console.error('Auth check failed:', error);
     if (authStatus) {
-      authStatus.textContent = '✗ Error';
+      authStatus.textContent = 'Error';
       authStatus.className = 'status-badge error';
     }
     return false;
@@ -1393,12 +1499,6 @@ async function sendMessage() {
   const message = terminalInput.value.trim();
   if (!message) return;
 
-  // Check auth first
-  const isAuthenticated = await checkAuthStatus();
-  if (!isAuthenticated) {
-    return;
-  }
-
   // Add user message
   addTerminalMessage('user', '👤', renderMarkdown(message));
 
@@ -1438,9 +1538,9 @@ async function sendMessage() {
     console.error('Chat failed after retries:', error);
     const errorMessage = error.message || 'Failed to send message';
     const errorHtml = `
-      <strong>Error (after 3 attempts):</strong><br>
+      <strong>Error:</strong><br>
       <pre style="white-space: pre-wrap; font-size: 0.85em; margin: 10px 0;">${errorMessage}</pre>
-      <button class="btn-sm btn-primary" onclick="retryLastMessage('${message.replace(/'/g, "\\'")}')">🔄 Retry</button>
+      <button class="btn-sm btn-primary" onclick="retryLastMessage('${message.replace(/'/g, "\\'")}')">Retry</button>
     `;
     addTerminalMessage('error', '❌', errorHtml);
   }
@@ -1455,8 +1555,13 @@ function retryLastMessage(message) {
 }
 
 // Clear chat
-function clearChat() {
+async function clearChat() {
   if (!terminalOutput) return;
+
+  // Clear server-side history
+  try {
+    await fetch('/api/assistant/clear', { method: 'POST' });
+  } catch {}
 
   // Keep only the welcome message
   const welcomeMessage = terminalOutput.querySelector('.system-message');
@@ -1548,7 +1653,6 @@ async function checkUploadStatus() {
 
     if (data.hasUploadedData) {
       showUploadStatus('success', `Using uploaded data (${data.dataSource})`);
-      clearUploadBtn.style.display = 'inline-block';
     }
   } catch (error) {
     console.error('Failed to check upload status:', error);
@@ -1599,11 +1703,11 @@ async function handleFileUpload(event) {
       showUploadStatus('success',
         `Successfully loaded ${data.stats.conversations} conversations, ${data.stats.messages} messages`
       );
-      clearUploadBtn.style.display = 'inline-block';
 
       // Reload data
       await loadStats();
       await loadConversations();
+      await loadDataInfo();
 
       // Hide progress after a delay
       setTimeout(() => {
@@ -1641,7 +1745,7 @@ async function handleClearUpload() {
 
     if (response.ok) {
       showUploadStatus('info', data.message);
-      clearUploadBtn.style.display = 'none';
+      dataInfoPanel.classList.add('hidden');
 
       // Reload data
       await loadStats();
@@ -1659,4 +1763,339 @@ async function handleClearUpload() {
 function showUploadStatus(type, message) {
   uploadStatus.textContent = message;
   uploadStatus.className = `upload-status ${type}`;
+}
+
+/**
+ * Settings Panel Functions
+ */
+
+// Load settings on page load
+async function loadSettings() {
+  try {
+    const response = await fetch('/api/settings');
+    const data = await response.json();
+
+    if (data.hasApiKey) {
+      apiKeyInput.value = data.apiKey;
+      modelSearchInput.disabled = false;
+      refreshModelsBtn.disabled = false;
+
+      // Show saved info
+      if (data.savedAt) {
+        const savedDate = new Date(data.savedAt);
+        if (data.expiresAt) {
+          const expDate = new Date(data.expiresAt);
+          const daysLeft = Math.max(0, Math.ceil((expDate - Date.now()) / (1000 * 60 * 60 * 24)));
+          if (daysLeft <= 0) {
+            keySavedInfo.textContent = 'Key expired — please re-enter';
+            keySavedInfo.style.color = 'var(--danger)';
+            apiKeyInput.value = '';
+          } else {
+            keySavedInfo.textContent = `Saved · expires in ${daysLeft} days`;
+            keySavedInfo.style.color = 'var(--success)';
+          }
+        } else {
+          keySavedInfo.textContent = `Saved ${savedDate.toLocaleDateString()} · no expiry`;
+          keySavedInfo.style.color = 'var(--success)';
+        }
+      }
+
+      // Restore model selection
+      if (data.model) {
+        modelSelectHidden.value = data.model;
+        showSelectedModel(data.model);
+      }
+
+      // Load models
+      loadModels();
+    }
+  } catch (error) {
+    console.error('Failed to load settings:', error);
+  }
+}
+
+// Fetch models from OpenRouter
+async function loadModels() {
+  const key = apiKeyInput.value.trim();
+  if (!key) {
+    modelHint.textContent = 'Enter API key first';
+    return;
+  }
+
+  modelHint.textContent = 'Loading models...';
+  refreshModelsBtn.disabled = true;
+
+  try {
+    const response = await fetch(`/api/models?apiKey=${encodeURIComponent(key)}`);
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to fetch models');
+    }
+
+    allModels = data.models || [];
+    filteredModels = [...allModels];
+
+    modelHint.textContent = `${allModels.length} models loaded`;
+    refreshModelsBtn.disabled = false;
+
+    // Render the dropdown
+    filterModels(modelSearchInput.value || '');
+  } catch (error) {
+    console.error('Failed to load models:', error);
+    modelHint.textContent = `Error: ${error.message}`;
+    refreshModelsBtn.disabled = false;
+  }
+}
+
+// Filter and render models in dropdown
+function filterModels(query) {
+  const q = query.toLowerCase().trim();
+
+  if (q) {
+    filteredModels = allModels.filter(m =>
+      m.id.toLowerCase().includes(q) ||
+      m.name.toLowerCase().includes(q) ||
+      (m.description || '').toLowerCase().includes(q)
+    );
+  } else {
+    filteredModels = [...allModels];
+  }
+
+  // Group by provider
+  const groups = {};
+  filteredModels.forEach(m => {
+    const provider = m.id.split('/')[0] || 'Other';
+    if (!groups[provider]) groups[provider] = [];
+    groups[provider].push(m);
+  });
+
+  // Render
+  const sortedProviders = Object.keys(groups).sort();
+  const selectedId = modelSelectHidden.value;
+
+  let html = '';
+
+  if (filteredModels.length === 0) {
+    html = '<div class="model-dropdown-no-results">No models match your search</div>';
+  } else {
+    sortedProviders.forEach(provider => {
+      html += `<div class="model-dropdown-group">`;
+      html += `<div class="model-dropdown-group-label">${provider}</div>`;
+
+      groups[provider]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .forEach(m => {
+          const isSelected = m.id === selectedId;
+          const ctx = m.context_length ? `${Math.round(m.context_length / 1000)}k` : '';
+          const promptCost = parseFloat(m.pricing?.prompt || '0') * 1000000;
+          const completionCost = parseFloat(m.pricing?.completion || '0') * 1000000;
+          const isFree = promptCost === 0 && completionCost === 0;
+          const priceLabel = isFree ? 'FREE' : `$${promptCost.toFixed(2)}/$${completionCost.toFixed(2)} per 1M`;
+          const priceClass = isFree ? '' : 'paid';
+
+          html += `
+            <div class="model-dropdown-item ${isSelected ? 'selected' : ''}"
+                 data-model-id="${m.id}"
+                 data-model-name="${m.name}"
+                 data-model-ctx="${ctx}"
+                 data-model-pricing="${priceLabel}"
+                 onclick="selectModel(this)">
+              <span class="model-dropdown-item-name">${m.name}</span>
+              <div class="model-dropdown-item-meta">
+                ${ctx ? `<span class="model-dropdown-item-ctx">${ctx}</span>` : ''}
+                <span class="model-dropdown-item-pricing ${priceClass}">${isFree ? 'FREE' : 'PAID'}</span>
+              </div>
+            </div>
+          `;
+        });
+
+      html += `</div>`;
+    });
+  }
+
+  modelDropdownList.innerHTML = html;
+  modelDropdown.classList.remove('hidden');
+}
+
+// Select a model from dropdown
+function selectModel(element) {
+  const modelId = element.dataset.modelId;
+  const modelName = element.dataset.modelName;
+  const modelCtx = element.dataset.modelCtx;
+  const modelPricing = element.dataset.modelPricing;
+
+  modelSelectHidden.value = modelId;
+  modelSearchInput.value = modelName;
+  modelDropdown.classList.add('hidden');
+
+  // Update selected display
+  showSelectedModel(modelId, modelName, modelCtx, modelPricing);
+}
+
+// Show selected model info
+function showSelectedModel(modelId, name, ctx, pricing) {
+  if (!selectedModelDisplay) return;
+
+  // If we only have the ID, try to find the model
+  if (!name) {
+    const m = allModels.find(m => m.id === modelId);
+    if (m) {
+      name = m.name;
+      ctx = m.context_length ? `${Math.round(m.context_length / 1000)}k` : '';
+      const promptCost = parseFloat(m.pricing?.prompt || '0') * 1000000;
+      const completionCost = parseFloat(m.pricing?.completion || '0') * 1000000;
+      pricing = (promptCost === 0 && completionCost === 0) ? 'FREE' : `$${promptCost.toFixed(2)}/$${completionCost.toFixed(2)} per 1M`;
+    }
+  }
+
+  selectedModelDisplay.classList.remove('hidden');
+  selectedModelName.textContent = name || modelId;
+  selectedModelCtx.textContent = ctx || '';
+  selectedModelPricing.textContent = pricing || '';
+  modelSearchInput.value = name || modelId;
+
+  if (currentModelBadge) {
+    currentModelBadge.textContent = name || modelId;
+  }
+}
+
+// Save settings
+async function saveSettings() {
+  const key = apiKeyInput.value.trim();
+  const model = modelSelectHidden.value;
+
+  if (!key) {
+    alert('Please enter an API key.');
+    return;
+  }
+
+  if (!model) {
+    alert('Please select a model.');
+    return;
+  }
+
+  // Get persist duration
+  const persistRadio = document.querySelector('input[name="persist-duration"]:checked');
+  const persistDays = persistRadio ? parseInt(persistRadio.value) : 0;
+
+  try {
+    const response = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiKey: key, model, persistDays }),
+    });
+
+    if (!response.ok) throw new Error('Failed to save');
+
+    settingsPanel.classList.add('hidden');
+
+    if (currentModelBadge) {
+      currentModelBadge.textContent = model;
+    }
+
+    if (authStatus) {
+      authStatus.textContent = 'Connected (OpenRouter)';
+      authStatus.className = 'status-badge authenticated';
+    }
+
+    // Update saved info
+    if (persistDays > 0) {
+      keySavedInfo.textContent = `Saved · expires in ${persistDays} days`;
+    } else {
+      keySavedInfo.textContent = 'Saved · no expiry';
+    }
+    keySavedInfo.style.color = 'var(--success)';
+
+    addTerminalMessage('system', '✓', `Settings saved. Model: <strong>${model}</strong>`);
+  } catch (error) {
+    alert('Failed to save settings: ' + error.message);
+  }
+}
+
+// Clear settings
+async function clearSettings() {
+  if (!confirm('Remove your saved API key and model?')) return;
+
+  try {
+    await fetch('/api/settings/clear', { method: 'POST' });
+
+    apiKeyInput.value = '';
+    modelSearchInput.value = '';
+    modelSearchInput.disabled = true;
+    modelSelectHidden.value = '';
+    refreshModelsBtn.disabled = true;
+    allModels = [];
+    filteredModels = [];
+
+    if (selectedModelDisplay) selectedModelDisplay.classList.add('hidden');
+    if (currentModelBadge) currentModelBadge.textContent = 'No model selected';
+    if (authStatus) {
+      authStatus.textContent = 'Not connected';
+      authStatus.className = 'status-badge error';
+    }
+
+    keySavedInfo.textContent = '';
+    modelHint.textContent = 'Enter API key to load models';
+
+    addTerminalMessage('system', '🗑️', 'Settings cleared.');
+  } catch (error) {
+    alert('Failed to clear settings: ' + error.message);
+  }
+}
+
+/**
+ * Data Info Functions
+ */
+
+// Load persistent data info
+async function loadDataInfo() {
+  try {
+    const response = await fetch('/api/data/info');
+    const data = await response.json();
+
+    if (data.exists && data.stats) {
+      dataInfoPanel.classList.remove('hidden');
+      dataInfoStats.textContent = `${data.stats.conversations} conversations · ${data.stats.messages} messages · ${data.stats.projects} projects (${data.sizeKB} KB)`;
+      dataInfoPath.textContent = data.path;
+    } else {
+      dataInfoPanel.classList.add('hidden');
+    }
+  } catch (error) {
+    console.error('Failed to load data info:', error);
+    dataInfoPanel.classList.add('hidden');
+  }
+}
+
+// Handle reset data
+async function handleResetData() {
+  if (!confirm('This will delete ALL your uploaded conversation data. You will need to upload your ZIP again. Continue?')) {
+    return;
+  }
+
+  try {
+    resetDataBtn.disabled = true;
+    resetDataBtn.textContent = 'Deleting...';
+
+    const response = await fetch('/api/upload/clear', { method: 'POST' });
+    const data = await response.json();
+
+    if (response.ok) {
+      dataInfoPanel.classList.add('hidden');
+      showUploadStatus('success', 'All data deleted. Upload a new ZIP to start fresh.');
+
+      // Reload everything
+      await loadStats();
+      await loadConversations();
+
+      addTerminalMessage('system', '🗑️', 'All conversation data has been deleted.');
+    } else {
+      showUploadStatus('error', data.error || 'Failed to delete data');
+    }
+  } catch (error) {
+    showUploadStatus('error', 'Failed to delete: ' + error.message);
+  } finally {
+    resetDataBtn.disabled = false;
+    resetDataBtn.textContent = 'Reset Data';
+  }
 }
