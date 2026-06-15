@@ -124,10 +124,14 @@ export class ClaudeDataParser {
   }
 
   /**
-   * Load and parse JSON file
+   * Load and parse JSON file — returns empty array if file missing
    */
   private async loadJSON<T>(filename: string): Promise<T> {
     const filePath = `${this.dataPath}/${filename}`;
+    const { existsSync } = await import('fs');
+    if (!existsSync(filePath)) {
+      return [] as unknown as T;
+    }
     const content = await readFile(filePath, 'utf-8');
     return JSON.parse(content) as T;
   }
