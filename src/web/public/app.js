@@ -206,10 +206,27 @@ if (modelSearchInput) {
     modelDropdown.classList.remove('hidden');
   });
 
+  // Reposition dropdown on scroll inside modal
+  function repositionDropdown() {
+    if (modelDropdown.classList.contains('hidden')) return;
+    const rect = modelSearchInput.getBoundingClientRect();
+    modelDropdown.style.position = 'fixed';
+    modelDropdown.style.top = (rect.bottom + 4) + 'px';
+    modelDropdown.style.left = rect.left + 'px';
+    modelDropdown.style.width = rect.width + 'px';
+  }
+
+  modelSearchInput.addEventListener('focus', repositionDropdown);
+  modelSearchInput.addEventListener('input', repositionDropdown);
+
   // Close dropdown when clicking outside
   document.addEventListener('click', (e) => {
     if (!modelSearchInput.contains(e.target) && !modelDropdown.contains(e.target)) {
       modelDropdown.classList.add('hidden');
+      modelDropdown.style.position = '';
+      modelDropdown.style.top = '';
+      modelDropdown.style.left = '';
+      modelDropdown.style.width = '';
     }
   });
 }
@@ -1807,8 +1824,15 @@ async function loadModels() {
 
     // Auto-open dropdown and show all models
     modelDropdown.classList.remove('hidden');
-    modelSearchInput.focus();
     modelSearchInput.placeholder = `Search ${allModels.length} models...`;
+
+    // Reposition dropdown below input (escape overflow)
+    const rect = modelSearchInput.getBoundingClientRect();
+    modelDropdown.style.position = 'fixed';
+    modelDropdown.style.top = (rect.bottom + 4) + 'px';
+    modelDropdown.style.left = rect.left + 'px';
+    modelDropdown.style.width = rect.width + 'px';
+    modelSearchInput.focus();
   } catch (error) {
     console.error('Failed to load models:', error);
     modelHint.textContent = `Error: ${error.message}`;
