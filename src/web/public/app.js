@@ -1804,6 +1804,11 @@ async function loadModels() {
 
     // Render the dropdown
     filterModels(modelSearchInput.value || '');
+
+    // Auto-open dropdown and show all models
+    modelDropdown.classList.remove('hidden');
+    modelSearchInput.focus();
+    modelSearchInput.placeholder = `Search ${allModels.length} models...`;
   } catch (error) {
     console.error('Failed to load models:', error);
     modelHint.textContent = `Error: ${error.message}`;
