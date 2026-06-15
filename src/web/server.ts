@@ -129,6 +129,13 @@ async function tryLoadPersistedData(): Promise<boolean> {
       console.log(`⚠ Failed to load persisted data:`, error);
     }
   }
+  // No persisted data — create placeholder files in cwd
+  for (const file of ['conversations.json', 'projects.json', 'users.json']) {
+    const filePath = join(process.cwd(), file);
+    if (!fsExistsSync(filePath)) {
+      writeFileSync(filePath, '[]', 'utf-8');
+    }
+  }
   return false;
 }
 
@@ -680,6 +687,14 @@ app.post('/api/upload/clear', async (_req: Request, res: Response) => {
     }
 
     uploadedDataPath = null;
+
+    // Create placeholder files in default dataPath so parser can load
+    for (const file of ['conversations.json', 'projects.json', 'users.json']) {
+      const filePath = join(dataPath, file);
+      if (!fsExistsSync(filePath)) {
+        writeFileSync(filePath, '[]', 'utf-8');
+      }
+    }
 
     // Reload default data
     await initializeData(dataPath);
