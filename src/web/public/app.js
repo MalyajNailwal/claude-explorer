@@ -60,7 +60,6 @@ const clearFiltersBtn = document.getElementById('clear-filters');
 
 // Upload elements
 const uploadBtn = document.getElementById('upload-btn');
-const clearUploadBtn = document.getElementById('clear-upload-btn');
 const fileInput = document.getElementById('file-input');
 const uploadStatus = document.getElementById('upload-status');
 const uploadProgress = document.getElementById('upload-progress');
@@ -97,10 +96,6 @@ if (uploadBtn) {
 
 if (fileInput) {
   fileInput.addEventListener('change', handleFileUpload);
-}
-
-if (clearUploadBtn) {
-  clearUploadBtn.addEventListener('click', handleClearUpload);
 }
 
 // Reset data button
@@ -1725,38 +1720,6 @@ async function handleFileUpload(event) {
 
   // Reset file input
   fileInput.value = '';
-}
-
-// Handle clear upload
-async function handleClearUpload() {
-  if (!confirm('Are you sure you want to clear the uploaded data and revert to the default data source?')) {
-    return;
-  }
-
-  try {
-    uploadStatus.textContent = '';
-    uploadStatus.className = 'upload-status';
-
-    const response = await fetch('/api/upload/clear', {
-      method: 'POST',
-    });
-
-    const data = await response.json();
-
-    if (response.ok) {
-      showUploadStatus('info', data.message);
-      dataInfoPanel.classList.add('hidden');
-
-      // Reload data
-      await loadStats();
-      await loadConversations();
-    } else {
-      showUploadStatus('error', data.error || 'Failed to clear uploaded data');
-    }
-  } catch (error) {
-    console.error('Clear upload error:', error);
-    showUploadStatus('error', `Failed to clear: ${error.message}`);
-  }
 }
 
 // Show upload status message
