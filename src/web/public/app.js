@@ -103,6 +103,18 @@ if (resetDataBtn) {
   resetDataBtn.addEventListener('click', handleResetData);
 }
 
+// Open folder button
+const openFolderBtn = document.getElementById('open-folder-btn');
+if (openFolderBtn) {
+  openFolderBtn.addEventListener('click', async () => {
+    try {
+      await fetch('/api/data/open-folder', { method: 'POST' });
+    } catch (err) {
+      console.error('Failed to open folder:', err);
+    }
+  });
+}
+
 // Advanced filter event listeners
 if (toggleAdvancedFilters) {
   toggleAdvancedFilters.addEventListener('click', () => {
@@ -206,18 +218,38 @@ if (modelSearchInput) {
     modelDropdown.classList.remove('hidden');
   });
 
-  // Reposition dropdown on scroll inside modal
+  // Reposition dropdown on scroll inside modal - viewport aware
   function repositionDropdown() {
     if (modelDropdown.classList.contains('hidden')) return;
     const rect = modelSearchInput.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const dropdownMaxHeight = 360; // from CSS
+    const spaceBelow = viewportHeight - rect.bottom - 8;
+    const spaceAbove = rect.top - 8;
+
     modelDropdown.style.position = 'fixed';
-    modelDropdown.style.top = (rect.bottom + 4) + 'px';
     modelDropdown.style.left = rect.left + 'px';
     modelDropdown.style.width = rect.width + 'px';
+
+    if (spaceBelow >= dropdownMaxHeight || spaceBelow >= spaceAbove) {
+      // Open below
+      modelDropdown.style.top = (rect.bottom + 4) + 'px';
+      modelDropdown.style.bottom = 'auto';
+      modelDropdown.style.maxHeight = Math.min(dropdownMaxHeight, spaceBelow) + 'px';
+    } else {
+      // Open above (flip)
+      modelDropdown.style.top = 'auto';
+      modelDropdown.style.bottom = (viewportHeight - rect.top + 4) + 'px';
+      modelDropdown.style.maxHeight = Math.min(dropdownMaxHeight, spaceAbove) + 'px';
+    }
   }
 
   modelSearchInput.addEventListener('focus', repositionDropdown);
   modelSearchInput.addEventListener('input', repositionDropdown);
+
+  // Reposition on window scroll/resize
+  window.addEventListener('scroll', repositionDropdown, true);
+  window.addEventListener('resize', repositionDropdown);
 
   // Close dropdown when clicking outside
   document.addEventListener('click', (e) => {
@@ -225,8 +257,10 @@ if (modelSearchInput) {
       modelDropdown.classList.add('hidden');
       modelDropdown.style.position = '';
       modelDropdown.style.top = '';
+      modelDropdown.style.bottom = '';
       modelDropdown.style.left = '';
       modelDropdown.style.width = '';
+      modelDropdown.style.maxHeight = '';
     }
   });
 }
@@ -1672,6 +1706,32 @@ async function checkUploadStatus() {
 }
 
 // Handle file upload
+let pendingUploadFile = null;
+
+// Upload mode select elements
+const uploadModeSelect = document.getElementById('upload-mode-select');
+const uploadConfirmBtn = document.getElementById('upload-confirm-btn');
+const uploadCancelBtn = document.getElementById('upload-cancel-btn');
+
+if (uploadConfirmBtn) {
+  uploadConfirmBtn.addEventListener('click', () => {
+    const mode = document.querySelector('input[name="upload-mode"]:checked')?.value || 'replace';
+    uploadModeSelect.classList.add('hidden');
+    if (pendingUploadFile) {
+      doUpload(pendingUploadFile, mode);
+      pendingUploadFile = null;
+    }
+  });
+}
+
+if (uploadCancelBtn) {
+  uploadCancelBtn.addEventListener('click', () => {
+    uploadModeSelect.classList.add('hidden');
+    pendingUploadFile = null;
+    fileInput.value = '';
+  });
+}
+
 async function handleFileUpload(event) {
   const file = event.target.files[0];
   if (!file) return;
@@ -1681,18 +1741,34 @@ async function handleFileUpload(event) {
     return;
   }
 
+  // Check if data already exists — if so, show merge/replace options
+  try {
+    const statusResp = await fetch('/api/data/info');
+    const statusData = await statusResp.json();
+    if (statusData.exists) {
+      pendingUploadFile = file;
+      uploadModeSelect.classList.remove('hidden');
+      uploadStatus.textContent = '';
+      uploadStatus.className = 'upload-status';
+      return;
+    }
+  } catch { /* first upload, no existing data */ }
+
+  doUpload(file, 'replace');
+}
+
+async function doUpload(file, mode) {
   const formData = new FormData();
   formData.append('file', file);
+  formData.append('mode', mode);
 
   try {
-    // Show progress
     uploadProgress.classList.remove('hidden');
     uploadStatus.textContent = '';
     uploadStatus.className = 'upload-status';
     progressFill.style.width = '0%';
-    progressText.textContent = 'Uploading and processing...';
+    progressText.textContent = mode === 'merge' ? 'Merging data...' : 'Uploading and processing...';
 
-    // Simulate progress (since we can't track real progress easily)
     let progress = 0;
     const progressInterval = setInterval(() => {
       progress += 5;
@@ -1712,16 +1788,15 @@ async function handleFileUpload(event) {
     const data = await response.json();
 
     if (response.ok) {
-      showUploadStatus('success',
-        `Successfully loaded ${data.stats.conversations} conversations, ${data.stats.messages} messages`
-      );
+      const msg = data.mode === 'merge'
+        ? `Merged: +${data.stats.addedConversations} new conversations, +${data.stats.addedProjects} new projects (duplicates skipped)`
+        : `Successfully loaded ${data.stats.conversations} conversations, ${data.stats.messages} messages`;
+      showUploadStatus('success', msg);
 
-      // Reload data
       await loadStats();
       await loadConversations();
       await loadDataInfo();
 
-      // Hide progress after a delay
       setTimeout(() => {
         uploadProgress.classList.add('hidden');
       }, 2000);
@@ -1735,7 +1810,6 @@ async function handleFileUpload(event) {
     uploadProgress.classList.add('hidden');
   }
 
-  // Reset file input
   fileInput.value = '';
 }
 
@@ -1826,12 +1900,8 @@ async function loadModels() {
     modelDropdown.classList.remove('hidden');
     modelSearchInput.placeholder = `Search ${allModels.length} models...`;
 
-    // Reposition dropdown below input (escape overflow)
-    const rect = modelSearchInput.getBoundingClientRect();
-    modelDropdown.style.position = 'fixed';
-    modelDropdown.style.top = (rect.bottom + 4) + 'px';
-    modelDropdown.style.left = rect.left + 'px';
-    modelDropdown.style.width = rect.width + 'px';
+    // Smart reposition (viewport aware)
+    repositionDropdown();
     modelSearchInput.focus();
   } catch (error) {
     console.error('Failed to load models:', error);
