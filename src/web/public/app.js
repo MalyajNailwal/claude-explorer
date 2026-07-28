@@ -232,24 +232,6 @@ function applyAdvancedFiltersToResults(conversations) {
 }
 
 /**
- * Apply advanced filters button handler
- */
-function applyAdvancedFilters() {
-  loadConversations();
-}
-
-/**
- * Clear advanced filters
- */
-function clearAdvancedFilters() {
-  if (filterDateFrom) filterDateFrom.value = '';
-  if (filterDateTo) filterDateTo.value = '';
-  if (filterMessagesMin) filterMessagesMin.value = '';
-  if (filterMessagesMax) filterMessagesMax.value = '';
-  loadConversations();
-}
-
-/**
  * Handle search
  */
 async function handleSearch() {
@@ -1317,12 +1299,29 @@ function sleep(ms) {
 
 // Send message with retry logic
 async function sendMessageWithRetry(message, retries = 3, typingId = null) {
+  // Get selected model and provider
+  const modelSelector = document.getElementById('model-selector');
+  const selectedModel = modelSelector ? modelSelector.value : 'claude-sonnet-4-5-20250514';
+  
+  // Determine provider based on model ID
+  const provider = selectedModel.startsWith('claude-') ? 'anthropic' : 'openrouter';
+  
+  // Get API key for the provider
+  const apiKey = provider === 'openrouter' 
+    ? await getApiKey('openrouter')
+    : await getApiKey('anthropic');
+
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
       const response = await fetch('/api/assistant/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ 
+          message,
+          model: selectedModel,
+          provider: provider,
+          apiKey: apiKey
+        }),
       });
 
       if (!response.ok) {
@@ -1393,10 +1392,24 @@ async function sendMessage() {
   const message = terminalInput.value.trim();
   if (!message) return;
 
-  // Check auth first
-  const isAuthenticated = await checkAuthStatus();
-  if (!isAuthenticated) {
-    return;
+  // Get selected model and provider
+  const modelSelector = document.getElementById('model-selector');
+  const selectedModel = modelSelector ? modelSelector.value : 'claude-sonnet-4-5-20250514';
+  const provider = selectedModel.startsWith('claude-') ? 'anthropic' : 'openrouter';
+
+  // Check auth only for Anthropic (Claude Code requires authentication)
+  if (provider === 'anthropic') {
+    const isAuthenticated = await checkAuthStatus();
+    if (!isAuthenticated) {
+      return;
+    }
+  } else {
+    // For OpenRouter, check if API key exists
+    const apiKey = await getApiKey('openrouter');
+    if (!apiKey) {
+      addTerminalMessage('error', '❌', 'Please add your OpenRouter API key in Settings first!');
+      return;
+    }
   }
 
   // Add user message
@@ -1427,7 +1440,12 @@ async function sendMessage() {
     }
 
     // Add assistant response with enhanced download buttons
-    addTerminalMessage('assistant', '🤖', enhanceAIResponse(renderMarkdown(data.response)));
+    const responseHtml = enhanceAIResponse(renderMarkdown(data.response));
+    
+    // Add model info if available
+    const modelInfo = data.model ? `<div style="font-size: 0.8em; color: var(--text-muted); margin-top: 8px;">Model: ${data.model}${data.tokensUsed ? ` • ${data.tokensUsed} tokens` : ''}</div>` : '';
+    
+    addTerminalMessage('assistant', '🤖', responseHtml + modelInfo);
   } catch (error) {
     // Remove typing indicator
     const typingElement = document.getElementById(typingId);
@@ -1482,6 +1500,10 @@ function switchTab(tabName) {
     loadAnalytics();
   } else if (tabName === 'assistant') {
     checkAuthStatus();
+    // Initialize brain particles when assistant tab is opened
+    setTimeout(() => {
+      initBrainParticles();
+    }, 300);
   }
 }
 
@@ -1660,3 +1682,623 @@ function showUploadStatus(type, message) {
   uploadStatus.textContent = message;
   uploadStatus.className = `upload-status ${type}`;
 }
+
+/**
+ * Brain Particles - Real Conversation Network
+ */
+async function initBrainParticles() {
+  console.log('🧠 Initializing brain network with real data...');
+  
+  const container = document.getElementById('brain-particles');
+  if (!container) {
+    console.error('❌ Brain particles container not found!');
+    return;
+  }
+
+  // Fetch conversations
+  let conversations = [];
+  try {
+    const response = await fetch('/api/conversations?messagesOnly=true&limit=100');
+    const data = await response.json();
+    conversations = data.conversations || [];
+    console.log(`📊 Loaded ${conversations.length} conversations for brain network`);
+  } catch (error) {
+    console.error('❌ Failed to load conversations:', error);
+  }
+
+  // Clear container
+  container.innerHTML = '';
+  
+  // Create canvas
+  const canvas = document.createElement('canvas');
+  canvas.style.width = '100%';
+  canvas.style.height = '100%';
+  canvas.style.cursor = 'pointer';
+  container.appendChild(canvas);
+
+  const ctx = canvas.getContext('2d');
+  
+  // Set canvas size
+  function resizeCanvas() {
+    canvas.width = container.offsetWidth;
+    canvas.height = container.offsetHeight;
+  }
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+
+  // Extract topics from conversation
+  function extractTopics(name, messages) {
+    const text = (name + ' ' + (messages || []).map(m => m.text || '').join(' ')).toLowerCase();
+    const topics = [];
+    
+    const topicKeywords = {
+      'code': ['code', 'program', 'function', 'api', 'database', 'server', 'bug', 'debug'],
+      'design': ['design', 'ui', 'ux', 'layout', 'color', 'style', 'css'],
+      'ai': ['ai', 'machine learning', 'model', 'training', 'neural', 'prompt'],
+      'business': ['business', 'meeting', 'strategy', 'plan', 'project', 'team'],
+      'learning': ['learn', 'study', 'tutorial', 'course', 'book', 'research'],
+      'writing': ['write', 'article', 'blog', 'content', 'text', 'document'],
+      'data': ['data', 'analysis', 'statistics', 'chart', 'report'],
+      'personal': ['personal', 'family', 'friend', 'health', 'travel'],
+    };
+
+    for (const [topic, keywords] of Object.entries(topicKeywords)) {
+      if (keywords.some(k => text.includes(k))) {
+        topics.push(topic);
+      }
+    }
+
+    return topics.length > 0 ? topics : ['other'];
+  }
+
+  // Color map for topics
+  const topicColors = {
+    'code': '#3b82f6',
+    'design': '#ec4899',
+    'ai': '#8b5cf6',
+    'business': '#10b981',
+    'learning': '#f59e0b',
+    'writing': '#06b6d4',
+    'data': '#ef4444',
+    'personal': '#84cc16',
+    'other': '#64748b',
+  };
+
+  // Node class
+  class ConversationNode {
+    constructor(conv, index) {
+      this.conversation = conv;
+      this.topics = extractTopics(conv.name, conv.chat_messages);
+      this.color = topicColors[this.topics[0]] || topicColors['other'];
+      this.radius = Math.min(Math.max(conv.chat_messages?.length || 0, 5), 15);
+      this.x = Math.random() * canvas.width;
+      this.y = Math.random() * canvas.height;
+      this.vx = (Math.random() - 0.5) * 1;
+      this.vy = (Math.random() - 0.5) * 1;
+      this.hovered = false;
+      this.id = conv.uuid;
+      this.visible = true;
+      this.opacity = 1;
+    }
+
+    update() {
+      this.x += this.vx;
+      this.y += this.vy;
+
+      if (this.x < 0 || this.x > canvas.width) this.vx *= -1;
+      if (this.y < 0 || this.y > canvas.height) this.vy *= -1;
+    }
+
+    draw() {
+      if (!this.visible) return;
+      
+      ctx.globalAlpha = this.opacity;
+      
+      if (this.hovered) {
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius + 8, 0, Math.PI * 2);
+        ctx.fillStyle = this.color + '40';
+        ctx.fill();
+      }
+
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+      ctx.fillStyle = this.color;
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  const nodes = conversations.map((conv, idx) => new ConversationNode(conv, idx));
+
+  function areRelated(node1, node2) {
+    return node1.topics.some(t => node2.topics.includes(t));
+  }
+
+  let mouse = { x: null, y: null };
+  let hoveredNode = null;
+
+  canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mouse.x = e.clientX - rect.left;
+    mouse.y = e.clientY - rect.top;
+
+    hoveredNode = null;
+    nodes.forEach(node => {
+      if (!node.visible) {
+        node.hovered = false;
+        return;
+      }
+      
+      const dx = node.x - mouse.x;
+      const dy = node.y - mouse.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      node.hovered = distance < node.radius + 5;
+      if (node.hovered) hoveredNode = node;
+    });
+
+    canvas.style.cursor = hoveredNode ? 'pointer' : 'default';
+  });
+
+  canvas.addEventListener('mouseleave', () => {
+    mouse.x = null;
+    mouse.y = null;
+    nodes.forEach(node => node.hovered = false);
+    hoveredNode = null;
+  });
+
+  canvas.addEventListener('click', async () => {
+    if (hoveredNode) {
+      console.log('Clicked conversation:', hoveredNode.conversation.name);
+      await showDetail(hoveredNode.conversation.uuid);
+    }
+  });
+
+  function animate() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        if (nodes[i].visible && nodes[j].visible && areRelated(nodes[i], nodes[j])) {
+          const dx = nodes[i].x - nodes[j].x;
+          const dy = nodes[i].y - nodes[j].y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+
+          if (distance < 200) {
+            ctx.globalAlpha = nodes[i].opacity * nodes[j].opacity * 0.5;
+            ctx.beginPath();
+            ctx.strokeStyle = nodes[i].color;
+            ctx.lineWidth = 1.5;
+            ctx.moveTo(nodes[i].x, nodes[i].y);
+            ctx.lineTo(nodes[j].x, nodes[j].y);
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+          }
+        }
+      }
+    }
+
+    nodes.forEach(node => {
+      node.update();
+      node.draw();
+    });
+
+    if (hoveredNode && hoveredNode.visible) {
+      const conv = hoveredNode.conversation;
+      const tooltip = `${conv.name}\n${conv.chat_messages?.length || 0} messages\nTopics: ${hoveredNode.topics.join(', ')}`;
+      
+      ctx.font = '12px Inter, sans-serif';
+      const lines = tooltip.split('\n');
+      const lineHeight = 16;
+      const padding = 10;
+      const maxWidth = Math.max(...lines.map(l => ctx.measureText(l).width)) + padding * 2;
+      const height = lines.length * lineHeight + padding * 2;
+      
+      const x = hoveredNode.x + 15;
+      const y = hoveredNode.y - 15;
+
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+      ctx.fillRect(x, y, maxWidth, height);
+      ctx.strokeStyle = hoveredNode.color;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, maxWidth, height);
+
+      ctx.fillStyle = '#ffffff';
+      lines.forEach((line, idx) => {
+        ctx.fillText(line, x + padding, y + padding + (idx + 1) * lineHeight - 4);
+      });
+    }
+
+    requestAnimationFrame(animate);
+  }
+
+  animate();
+  console.log(`✅ Brain network initialized with ${nodes.length} conversation nodes`);
+  
+  updateBrainStats(nodes.length);
+  
+  // Setup legend click handlers
+  setupLegendFilter(nodes, ctx);
+}
+
+/**
+ * Setup legend topic filtering
+ */
+function setupLegendFilter(nodes, ctx) {
+  const legendItems = document.querySelectorAll('.legend-item');
+  let activeFilter = null;
+  
+  legendItems.forEach(item => {
+    item.addEventListener('click', () => {
+      const topic = item.dataset.topic;
+      
+      // Toggle filter
+      if (activeFilter === topic) {
+        activeFilter = null;
+        item.classList.remove('active');
+      } else {
+        activeFilter = topic;
+        legendItems.forEach(i => i.classList.remove('active'));
+        item.classList.add('active');
+      }
+      
+      // Update node visibility
+      nodes.forEach(node => {
+        if (activeFilter) {
+          const matches = node.topics.includes(activeFilter);
+          node.visible = matches;
+          node.opacity = matches ? 1 : 0.2;
+        } else {
+          node.visible = true;
+          node.opacity = 1;
+        }
+      });
+      
+      console.log(`🔍 Filter: ${activeFilter || 'All topics'}`);
+    });
+  });
+}
+
+/**
+ * Update brain visualization stats
+ */
+function updateBrainStats(nodeCount = 0) {
+  const nodesEl = document.getElementById('active-nodes');
+  const connectionsEl = document.getElementById('active-connections');
+  
+  if (nodesEl && connectionsEl) {
+    nodesEl.textContent = nodeCount || 0;
+    connectionsEl.textContent = Math.floor(nodeCount * 1.5);
+  }
+}
+
+/**
+ * Settings Management
+ */
+const settingsModal = document.getElementById('settings-modal');
+const settingsBtn = document.getElementById('settings-btn');
+
+// Open settings modal
+if (settingsBtn) {
+  settingsBtn.addEventListener('click', () => {
+    if (settingsModal) {
+      settingsModal.classList.remove('hidden');
+      loadApiKeys();
+    }
+  });
+}
+
+// Close settings modal
+if (settingsModal) {
+  const settingsCloseBtn = settingsModal.querySelector('.modal-close');
+  if (settingsCloseBtn) {
+    settingsCloseBtn.addEventListener('click', () => {
+      settingsModal.classList.add('hidden');
+    });
+  }
+  settingsModal.addEventListener('click', (e) => {
+    if (e.target === settingsModal) {
+      settingsModal.classList.add('hidden');
+    }
+  });
+}
+
+// API Key Management
+async function saveApiKey(provider, key) {
+  const keys = JSON.parse(localStorage.getItem('apiKeys') || '{}');
+  keys[provider] = key;
+  localStorage.setItem('apiKeys', JSON.stringify(keys));
+}
+
+async function getApiKey(provider) {
+  const keys = JSON.parse(localStorage.getItem('apiKeys') || '{}');
+  return keys[provider];
+}
+
+async function deleteApiKey(provider) {
+  const keys = JSON.parse(localStorage.getItem('apiKeys') || '{}');
+  delete keys[provider];
+  localStorage.setItem('apiKeys', JSON.stringify(keys));
+}
+
+async function loadApiKeys() {
+  const anthropicKey = await getApiKey('anthropic');
+  const openRouterKey = await getApiKey('openrouter');
+
+  const anthropicInput = document.getElementById('anthropic-key');
+  const openRouterInput = document.getElementById('openrouter-key');
+  const anthropicStatus = document.getElementById('anthropic-status');
+  const openRouterStatus = document.getElementById('openrouter-status');
+
+  if (anthropicInput) {
+    anthropicInput.value = anthropicKey || '';
+    anthropicStatus.textContent = anthropicKey ? '✓ Configured' : 'Not configured';
+    anthropicStatus.className = anthropicKey ? 'api-key-status configured' : 'api-key-status';
+  }
+
+  if (openRouterInput) {
+    openRouterInput.value = openRouterKey || '';
+    openRouterStatus.textContent = openRouterKey ? '✓ Configured' : 'Not configured';
+    openRouterStatus.className = openRouterKey ? 'api-key-status configured' : 'api-key-status';
+  }
+}
+
+// Save Anthropic key
+document.getElementById('save-anthropic-key')?.addEventListener('click', async () => {
+  const input = document.getElementById('anthropic-key');
+  const status = document.getElementById('anthropic-status');
+  
+  if (input && input.value) {
+    await saveApiKey('anthropic', input.value);
+    status.textContent = '✓ Saved';
+    status.className = 'api-key-status configured';
+    setTimeout(() => {
+      status.textContent = '✓ Configured';
+    }, 2000);
+  }
+});
+
+// Save OpenRouter key with validation
+document.getElementById('save-openrouter-key')?.addEventListener('click', async () => {
+  const input = document.getElementById('openrouter-key');
+  const status = document.getElementById('openrouter-status');
+  
+  if (input && input.value) {
+    status.textContent = 'Validating...';
+    status.className = 'api-key-status';
+    
+    try {
+      const response = await fetch('/api/validate-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'openrouter', apiKey: input.value }),
+      });
+      
+      const data = await response.json();
+      
+      if (data.valid) {
+        await saveApiKey('openrouter', input.value);
+        status.textContent = '✓ Valid & Saved - Loading models...';
+        status.className = 'api-key-status configured';
+        await loadModelOptions();
+        status.textContent = '✓ Valid & Saved - Models loaded!';
+        setTimeout(() => {
+          status.textContent = '✓ Configured';
+        }, 2000);
+      } else {
+        status.textContent = '✗ Invalid key';
+        status.className = 'api-key-status error';
+      }
+    } catch (error) {
+      status.textContent = '✗ Validation failed';
+      status.className = 'api-key-status error';
+    }
+  }
+});
+
+// Clear API keys
+document.getElementById('clear-anthropic-key')?.addEventListener('click', async () => {
+  await deleteApiKey('anthropic');
+  const input = document.getElementById('anthropic-key');
+  const status = document.getElementById('anthropic-status');
+  if (input) input.value = '';
+  if (status) {
+    status.textContent = 'Not configured';
+    status.className = 'api-key-status';
+  }
+});
+
+document.getElementById('clear-openrouter-key')?.addEventListener('click', async () => {
+  await deleteApiKey('openrouter');
+  const input = document.getElementById('openrouter-key');
+  const status = document.getElementById('openrouter-status');
+  if (input) input.value = '';
+  if (status) {
+    status.textContent = 'Not configured';
+    status.className = 'api-key-status';
+  }
+  await loadModelOptions();
+});
+
+/**
+ * Model Selection
+ */
+const modelSelector = document.getElementById('model-selector');
+
+async function loadModelOptions() {
+  const openRouterKey = await getApiKey('openrouter');
+  
+  // Show loading state
+  if (modelSelector) {
+    modelSelector.innerHTML = '<option value="">Loading models...</option>';
+    modelSelector.disabled = true;
+  }
+  
+  try {
+    const response = await fetch(`/api/models${openRouterKey ? `?openrouter_key=${encodeURIComponent(openRouterKey)}` : ''}`);
+    const data = await response.json();
+    
+    if (modelSelector && data.models) {
+      modelSelector.innerHTML = '';
+      
+      // Group by provider
+      const anthropicModels = data.models.filter(m => m.provider === 'anthropic');
+      const openRouterModels = data.models.filter(m => m.provider === 'openrouter');
+      
+      if (anthropicModels.length > 0) {
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = 'Anthropic';
+        anthropicModels.forEach(model => {
+          const option = document.createElement('option');
+          option.value = model.id;
+          option.textContent = model.name;
+          optgroup.appendChild(option);
+        });
+        modelSelector.appendChild(optgroup);
+      }
+      
+      if (openRouterModels.length > 0) {
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = `OpenRouter (${openRouterModels.length} models)`;
+        openRouterModels.forEach(model => {
+          const option = document.createElement('option');
+          option.value = model.id;
+          option.textContent = model.name;
+          optgroup.appendChild(option);
+        });
+        modelSelector.appendChild(optgroup);
+        
+        console.log(`✓ Loaded ${anthropicModels.length} Anthropic + ${openRouterModels.length} OpenRouter models`);
+      } else if (openRouterKey) {
+        console.log('⚠ OpenRouter key saved but no models loaded');
+      }
+      
+      // Restore saved model selection
+      const savedModel = localStorage.getItem('selectedModel');
+      if (savedModel) {
+        modelSelector.value = savedModel;
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load models:', error);
+    if (modelSelector) {
+      modelSelector.innerHTML = '<option value="">Failed to load models</option>';
+    }
+  } finally {
+    if (modelSelector) {
+      modelSelector.disabled = false;
+    }
+  }
+}
+
+// Save selected model
+if (modelSelector) {
+  modelSelector.addEventListener('change', () => {
+    localStorage.setItem('selectedModel', modelSelector.value);
+    console.log(`✓ Model changed to: ${modelSelector.value}`);
+  });
+}
+
+/**
+ * Clear All Data
+ */
+document.getElementById('clear-all-data')?.addEventListener('click', async () => {
+  if (confirm('Are you sure you want to clear ALL data? This will delete:\n\n• API keys\n• Chat history\n• Settings\n• Uploaded data\n\nThis cannot be undone!')) {
+    try {
+      // Clear localStorage
+      localStorage.clear();
+      
+      // Clear uploaded data
+      await fetch('/api/upload/clear', { method: 'POST' });
+      
+      // Clear chat history
+      clearChat();
+      
+      alert('All data cleared successfully!');
+      
+      // Close settings modal
+      if (settingsModal) {
+        settingsModal.classList.add('hidden');
+      }
+      
+      // Reload page
+      location.reload();
+    } catch (error) {
+      alert('Failed to clear data: ' + error.message);
+    }
+  }
+});
+
+/**
+ * Export/Import Settings
+ */
+document.getElementById('export-settings')?.addEventListener('click', () => {
+  const settings = {
+    apiKeys: JSON.parse(localStorage.getItem('apiKeys') || '{}'),
+    selectedModel: localStorage.getItem('selectedModel'),
+  };
+  
+  const blob = new Blob([JSON.stringify(settings, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `claude-explorer-settings-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('import-settings')?.addEventListener('click', () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'application/json';
+  
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    try {
+      const text = await file.text();
+      const settings = JSON.parse(text);
+      
+      if (settings.apiKeys) {
+        localStorage.setItem('apiKeys', JSON.stringify(settings.apiKeys));
+      }
+      if (settings.selectedModel) {
+        localStorage.setItem('selectedModel', settings.selectedModel);
+      }
+      
+      alert('Settings imported successfully!');
+      loadApiKeys();
+      await loadModelOptions();
+    } catch (error) {
+      alert('Failed to import settings: ' + error.message);
+    }
+  };
+  
+  input.click();
+});
+
+/**
+ * Initialize on page load
+ */
+(async function initializeOnLoad() {
+  // Load API keys
+  await loadApiKeys();
+  
+  // Load model options
+  await loadModelOptions();
+  
+  // Initialize brain particles when assistant tab is opened
+  const assistantTab = document.querySelector('[data-tab="assistant"]');
+  if (assistantTab) {
+    assistantTab.addEventListener('click', () => {
+      setTimeout(() => {
+        initBrainParticles();
+      }, 100);
+    });
+  }
+})();
