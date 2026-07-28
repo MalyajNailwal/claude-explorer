@@ -6,9 +6,56 @@
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue)](https://www.typescriptlang.org/)
 
-Claude Explorer helps you unlock the value in your Claude.ai conversation history by providing intelligent search, context extraction, and multiple export formats. Perfect for migrating conversations between accounts, creating knowledge bases for Claude Projects, or simply organizing your AI interactions.
+---
 
-## Features
+##  Acknowledgments
+
+This project is an enhanced fork of [paulhshort/claude-explorer](https://github.com/paulhshort/claude-explorer). The original repository provided an excellent foundation for Claude.ai conversation data exploration.
+
+**Significant enhancements, new features, bug fixes, and architectural improvements** have been added by **Malyaj Nailwal** starting from July 2026.
+
+---
+
+## 🆕 What's New (Malyaj Nailwal's Contributions)
+
+###  AI Assistant 2.0
+- **Multi-Provider Support** - Use Anthropic (Claude) or OpenRouter (200+ models including GPT-4, Gemini, Llama, etc.)
+- **Free Model Access** - Automatic filtering of free-tier models from OpenRouter
+- **Interactive Brain Network** - Real conversation visualization with topic-based nodes and connections
+- **Two-Column Layout** - AI conversation on the left, neural network visualization on the right
+- **Topic Filtering** - Click legend items to filter conversations by topic (Code, Design, AI, Business, etc.)
+- **Node Interaction** - Hover for details, click to open full conversation
+- **Settings Management** - In-browser API key management with validation
+
+###  Data Persistence & Storage
+- **IndexedDB Integration** - Browser-based storage for API keys, chat history, and settings
+- **Export/Import Settings** - Backup and restore your configuration
+- **Clear All Data** - Nuclear option to wipe everything from the browser
+
+### 🔧 Server Improvements
+- **Graceful Startup** - Server starts even without data files present
+- **Recursive File Search** - Handles nested ZIP structures from Claude.ai exports
+- **Resilient Parser** - Independent file loading, handles missing/corrupted files gracefully
+- **Optional Files** - `projects.json` and `users.json` are now optional (auto-created if missing)
+- **Multi-Provider Chat Endpoints** - Direct API access to OpenRouter models
+
+### 🎨 UI/UX Enhancements
+- **Model Selector** - Dropdown with provider grouping (Anthropic / OpenRouter)
+- **Token Usage Display** - See tokens used per response
+- **Topic Legend** - Color-coded visualization of conversation categories
+- **Responsive Layout** - Stacks vertically on mobile devices
+- **Dark Theme for Brain** - Professional gradient background for visualization
+
+### 🐛 Bug Fixes
+- Fixed server crash on startup when no data files present
+- Fixed ZIP upload failing for nested folder structures
+- Fixed duplicate function declarations in frontend
+- Fixed TypeScript compilation errors across multiple files
+- Fixed API endpoint return type inconsistencies
+
+---
+
+## Original Features
 
 ### 🤖 AI-Powered Interface
 - **Natural language queries** - Ask questions about your conversations in plain English
@@ -30,7 +77,7 @@ Claude Explorer helps you unlock the value in your Claude.ai conversation histor
 - Filter by multiple criteria simultaneously
 - Export statistics and analytics
 
-### 📦 Multiple Export Formats
+###  Multiple Export Formats
 
 **Markdown**
 - Clean, readable format perfect for Claude Projects
@@ -48,64 +95,81 @@ Claude Explorer helps you unlock the value in your Claude.ai conversation histor
 - Includes both Markdown and JSON formats
 - Comprehensive metadata files
 
-### 🎯 Smart Context Extraction
-- Automatic topic detection
-- Code snippet identification and extraction
-- Key decision tracking
-- Action item identification
-- Entity recognition
+---
 
-### 💻 Triple Interface
-- **AI Chat** - Conversational interface powered by Claude Code
-- **CLI** - Fast command-line tool for power users
-- **Web UI** - Beautiful browser interface for visual exploration
+## Use Cases
+
+###  Professional Use
+- **Knowledge Base Creation** - Build searchable archives of AI conversations for team reference
+- **Client Documentation** - Export AI-assisted research and deliverables
+- **Training Data** - Curate conversation datasets for model fine-tuning
+- **Compliance & Audit** - Maintain records of AI interactions for regulatory requirements
+
+### 🎓 Educational Use
+- **Learning Analytics** - Track what topics you explore most with AI
+- **Study Material** - Export tutorial conversations as study guides
+- **Research Organization** - Categorize and search academic discussions
+
+###  Developer Use
+- **Code Reference Library** - Build a searchable archive of coding discussions
+- **Debugging History** - Track solutions to past bugs and issues
+- **Architecture Decisions** - Document design discussions and rationale
+
+### 🎨 Creative Use
+- **Content Planning** - Organize brainstorming sessions and creative discussions
+- **Writing Portfolio** - Export AI-assisted writing projects
+- **Design Documentation** - Archive design process conversations
+
+### 🔄 Migration & Backup
+- **Account Migration** - Move conversations between personal and work accounts
+- **Data Backup** - Create local backups of your Claude.ai history
+- **Cross-Platform Access** - Access your conversations outside the Claude.ai interface
+
+---
 
 ## Quick Start
 
 ### Prerequisites
 - Node.js 18 or higher
 - Your Claude.ai export data (see [Getting Your Data](#getting-your-data))
-- **Claude Code CLI** (optional, for AI Assistant features)
-
-> **📖 New to Claude Explorer?** See [SETUP.md](SETUP.md) for detailed setup instructions including Claude Code installation.
+- **Optional**: Claude Code CLI (for Anthropic AI features)
+- **Optional**: OpenRouter API key (for 200+ free/paid models)
 
 ### Installation
 
 ```bash
-git clone https://github.com/paulhshort/claude-explorer.git
+git clone https://github.com/malyajnailwal/claude-explorer.git
 cd claude-explorer
 npm install
 npm run build
 ```
 
-### Basic Usage
+### Running the Application
 
-**Web Interface (Recommended)**
 ```bash
+# Start web server (port 3000)
 npm run web
-# Open http://localhost:3000 in your browser
-```
 
-**AI Chat Interface**
-```bash
-# Set up authentication (one time)
-npm run login
+# Development mode (TypeScript watch)
+npm run dev
 
-# Start chatting
+# CLI interface
+npm run cli stats
+npm run cli search "your query"
+
+# AI Chat interface
+npm run login  # Authenticate first
 npm run chat
 ```
 
-**Command Line**
-```bash
-# Get statistics
-npm run cli stats
+### First Time Setup
 
-# Search conversations
-npm run cli search "authentication patterns"
+1. Run `npm run web` to start the server
+2. Open `http://localhost:3000` in your browser
+3. Click "Choose File" to upload your Claude.ai export ZIP
+4. Once loaded, explore conversations via search, filters, or the AI assistant
 
-# Export a conversation
-npm run cli export <uuid> --format markdown -o output.md
-```
+---
 
 ## Getting Your Data
 
@@ -120,332 +184,241 @@ npm run cli export <uuid> --format markdown -o output.md
 7. Download and extract the ZIP file
 
 Your export will contain:
-- `conversations.json` - All your conversations
-- `projects.json` - All your Claude Projects
-- `users.json` - User information
-
-Place these files in a directory and point Claude Explorer to that directory.
+- `conversations.json` - All your conversations (required)
+- `projects.json` - Claude Projects (optional, auto-created if missing)
+- `users.json` - User information (optional, auto-created if missing)
 
 ### Directory Structure
 
 ```
 your-export-folder/
 ├── conversations.json
-├── projects.json
-└── users.json
+├── projects.json (optional)
+└── users.json (optional)
 ```
 
-## Usage Guide
+---
 
-### AI Chat Interface
+## AI Assistant Features
 
-The AI chat interface provides a natural way to explore your data:
+### Model Selection
 
-```bash
-npm run chat
-```
+The AI Assistant supports multiple providers:
 
-Example queries:
-- "Find conversations about React authentication"
-- "Show me all conversations from last month"
-- "Create a bundle of my database design discussions"
-- "What topics do I discuss most?"
-- "Export the top 3 conversations about TypeScript"
+| Provider | Models | Cost | Authentication |
+|----------|--------|------|----------------|
+| **Anthropic** | Claude Sonnet 4.5, Haiku 4.5 | $0.8-15/m tokens | Claude Code CLI |
+| **OpenRouter** | 200+ models (GPT-4, Gemini, Llama, etc.) | Free & paid options | API Key |
 
-### Web Interface
+### Setting Up OpenRouter (Free Models)
 
-The web interface provides a visual way to explore your conversations:
+1. Visit [openrouter.ai](https://openrouter.ai) and create an account
+2. Go to **Keys** section and generate an API key
+3. In Claude Explorer, click the ️ **Settings** button in the AI Assistant tab
+4. Paste your OpenRouter API key and click **Save & Validate**
+5. Select a free model from the dropdown
+6. Start chatting!
 
-```bash
-npm run web
-# Open http://localhost:3000
-```
+### Brain Network Visualization
 
-Features:
-- 📤 **Upload your Claude.ai export** - Drag and drop ZIP file upload
-- Browse all conversations with infinite scroll
-- Full-text search with live results
-- Advanced filters (date range, message count)
-- 📊 **Analytics dashboard** with activity timeline and keyword analysis
-- Detailed conversation viewer with syntax highlighting
-- One-click export buttons (Markdown, JSON, ZIP)
-- Batch export for multiple conversations
-- Project explorer
-- 🤖 **AI assistant** - Natural language queries (requires Claude Code CLI)
+The right panel shows an interactive visualization of your conversations:
 
-### CLI Interface
+- **Nodes** represent individual conversations
+- **Size** indicates message count (larger = more messages)
+- **Color** indicates topic category:
+  - 🔵 Blue = Code/Programming
+  - 🩷 Pink = Design/UI
+  -  Purple = AI/Machine Learning
+  - 🟢 Green = Business/Meetings
+  - 🟡 Amber = Learning/Studying
+  - 🔵 Cyan = Writing
+  - 🔴 Red = Data/Analysis
+  - 🟢 Lime = Personal
+  - ⚪ Gray = Other
 
-The CLI provides fast, scriptable access to your data:
+**Interactions:**
+- **Hover** over a node to see conversation details
+- **Click** a node to open the full conversation view
+- **Click legend items** to filter by topic
+- **Connections** show related conversations (same topics)
 
-#### Statistics
+---
 
+## CLI Usage
+
+### Statistics
 ```bash
 npm run cli stats
 ```
 
-Displays:
-- Total conversations and projects
-- Message counts and averages
-- Date ranges
-- Conversations with code
-- Active time periods
-
-#### Search
-
+### Search
 ```bash
-npm run cli search "database schema"
-npm run cli search "authentication" --limit 20
+npm run cli search "authentication patterns"
+npm run cli search "database schema" --limit 20
 npm run cli search "API design" --from 2024-01-01 --min-messages 10
 ```
 
-Options:
-- `-p, --path <path>` - Path to data directory (default: current directory)
-- `-l, --limit <number>` - Maximum results (default: 10)
-- `--from <date>` - Filter from date (YYYY-MM-DD)
-- `--to <date>` - Filter to date (YYYY-MM-DD)
-- `--min-messages <number>` - Minimum message count
-
-#### List
-
+### List
 ```bash
 npm run cli list conversations
 npm run cli list conversations --sort messages --limit 50
 npm run cli list projects
 ```
 
-Options:
-- `-l, --limit <number>` - Maximum items (default: 20)
-- `--sort <field>` - Sort by: date, messages, name (default: date)
-- `--messages-only` - Only show conversations with messages
-
-#### Export
-
+### Export
 ```bash
-npm run cli export <uuid> --format markdown -o conversation.md
+npm run cli export <uuid> --format markdown -o output.md
 npm run cli export <uuid> --format json -o data.json
 npm run cli export <uuid> --format bundle -o archive.zip
 ```
 
-Options:
-- `-f, --format <format>` - Export format: markdown, json, bundle (default: markdown)
-- `-o, --output <file>` - Output file path
-- `-t, --type <type>` - Type: conversation or project (default: conversation)
-
-Get UUIDs from the `list` or `search` commands.
+---
 
 ## Docker Deployment
 
-### Using Docker Compose (Recommended)
-
-1. Update `docker-compose.yml` with your data path:
+### Using Docker Compose
 
 ```yaml
 volumes:
   - /path/to/your/claude-export:/data:ro
 ```
 
-2. Start the container:
-
 ```bash
 docker-compose up -d
 ```
 
-3. Access at http://localhost:3000
-
 ### Using Docker CLI
 
 ```bash
-# Build the image
 docker build -t claude-explorer .
-
-# Run the container
 docker run -d \
   --name claude-explorer \
   -p 3000:3000 \
   -v "/path/to/your/claude-export:/data:ro" \
   -e DATA_PATH=/data \
   claude-explorer
-
-# View logs
-docker logs -f claude-explorer
 ```
 
-See [DOCKER.md](DOCKER.md) for detailed Docker deployment guide.
+---
 
-## Use Cases
-
-### Migrating to a Work Account
-
-1. Export from your personal account
-2. Search for work-related conversations
-3. Export relevant conversations as Markdown
-4. Upload to Claude Projects in your work account
-
-### Creating Knowledge Bases
-
-1. Use AI chat or web UI to find related conversations
-2. Export as a bundle (ZIP)
-3. Extract and organize the Markdown files
-4. Upload to Claude Projects for context
-
-### Code Reference Library
-
-1. Search for technical discussions and implementations
-2. Automatically extract code snippets
-3. Export with preserved formatting
-4. Build a personal code reference library
-
-### Research and Analysis
-
-1. Search across all conversations for patterns
-2. Extract key decisions and insights
-3. Generate reports and summaries
-4. Track your learning journey
-
-## Development
-
-### Project Structure
+## Project Structure
 
 ```
 claude-explorer/
 ├── src/
-│   ├── core/              # Shared library
-│   │   ├── parser.ts      # Data parsing
-│   │   ├── indexer.ts     # Search indexing
-│   │   ├── filters.ts     # Filtering logic
-│   │   ├── context-extractor.ts  # Smart extraction
-│   │   ├── fuzzy-search.ts      # Fuzzy matching
-│   │   ├── agent-tools.ts       # AI tool definitions
-│   │   └── exporters/           # Export formats
-│   ├── cli/               # CLI interface
-│   │   ├── index.ts       # CLI entry point
-│   │   ├── agent.ts       # AI chat interface
-│   │   └── commands/      # Individual commands
-│   └── web/               # Web interface
-│       ├── server.ts      # Express server
-│       └── public/        # Frontend files
-├── dist/                  # Compiled JavaScript
+│   ├── core/
+│   │   ├── parser.ts              # Data parsing with resilience
+│   │   ├── indexer.ts             # Lunr.js search indexing
+│   │   ├── filters.ts             # Filtering logic
+│   │   ├── context-extractor.ts   # Smart extraction
+│   │   ├── fuzzy-search.ts        # Fuzzy matching
+│   │   ├── agent-tools.ts         # AI tool definitions
+│   │   ├── models.ts              # Multi-provider model config
+│   │   ├── openrouter-client.ts   # OpenRouter API wrapper
+│   │   ├── storage.ts             # IndexedDB storage manager
+│   │   └── exporters/             # Export formats
+│   ├── cli/                       # CLI interface
+│   ── web/                       # Web interface
+│       ├── server.ts              # Express server
+│       ── public/                # Frontend (HTML/CSS/JS)
+├── dist/                          # Compiled JavaScript
 ├── Dockerfile
-├── docker-compose.yml
-└── package.json
+└── docker-compose.yml
 ```
 
-### Building
-
-```bash
-# Install dependencies
-npm install
-
-# Build TypeScript
-npm run build
-
-# Watch mode for development
-npm run dev
-```
-
-### Running Tests
-
-```bash
-npm test
-```
+---
 
 ## Configuration
 
 ### Environment Variables
 
-Create a `.env` file in the project root:
-
+Create a `.env` file:
 ```bash
-# Port for web server (default: 3000)
 PORT=3000
-
-# Data path (optional, can be passed as CLI argument)
 DATA_PATH=/path/to/data
 ```
 
 ### Authentication
 
-The AI chat interface uses Claude Code authentication:
-
+**Anthropic (Claude Code):**
 ```bash
-# Set up authentication (one time)
 npm run login
 ```
 
-This will store your credentials securely in `~/.claude-explorer/auth.json`.
+**OpenRouter:**
+Configure via the web UI Settings modal (⚙️ button in AI Assistant tab).
+
+---
+
+## Development
+
+### Building
+```bash
+npm install
+npm run build
+npm run dev          # Watch mode
+npm run web          # Start server
+```
+
+### Tech Stack
+- **Backend**: TypeScript 5.3, Node.js 18+, Express 4
+- **Search**: Lunr.js (full-text), Fuse.js (fuzzy)
+- **Frontend**: Vanilla HTML/CSS/JS, Canvas API
+- **Storage**: IndexedDB (browser), JSON files (server)
+- **AI**: Anthropic SDK, OpenRouter API
+- **Deployment**: Docker, Docker Compose
+
+---
+
+## Security & Privacy
+
+- 🔒 **Local-First** - All data processing happens on your machine
+- 🚫 **No External Transmission** - Conversations never leave your device (except AI API calls)
+- 🔐 **Secure Storage** - API keys stored in browser IndexedDB
+- 📦 **Read-Only Docker** - Data mounted as read-only in containers
+- ️ **Full Control** - Clear all data anytime from Settings
+
+---
 
 ## Troubleshooting
 
 ### "Failed to load data"
-
-- Ensure you're in the correct directory with the JSON files
+- Ensure your export contains `conversations.json`
 - Or use `-p <path>` to specify the data directory
-- Verify your export contains `conversations.json` and `projects.json`
+- Files can be nested in subfolders - the parser searches recursively
 
 ### Web server won't start
-
 - Check if port 3000 is already in use
-- Set `PORT` environment variable to use a different port
-- Check logs for detailed error messages
-
-### Search returns no results
-
-- Verify conversations have messages
-- Try broader search terms
-- Check date filters aren't too restrictive
-- Ensure search index built successfully
+- Set `PORT` environment variable for a different port
 
 ### AI chat not working
+- **Anthropic**: Run `npm run login` and ensure Claude Code CLI is installed
+- **OpenRouter**: Add your API key in Settings and validate it
+- Check your internet connection for API calls
 
-- Run `npm run login` to authenticate
-- Ensure you have Claude Code CLI installed
-- Check your API key or OAuth token is valid
+### Brain network not showing
+- Ensure you've uploaded conversation data
+- Check browser console for errors
+- Try refreshing the page
 
-## Performance
-
-- Handles large exports (tested with 700+ conversations)
-- Fast full-text search using Lunr.js indexing
-- Efficient filtering and sorting algorithms
-- Lightweight Alpine Linux Docker images (~200MB)
-- Optimized for minimal memory usage
-
-## Security
-
-- Data mounted read-only in Docker
-- No data sent to external services (except AI features)
-- OAuth tokens stored securely
-- Local processing only
-- User data never leaves your machine
-
-## Contributing
-
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+---
 
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Acknowledgments
+---
 
-- Built with [Node.js](https://nodejs.org/) and [TypeScript](https://www.typescriptlang.org/)
-- Search powered by [Lunr.js](https://lunrjs.com/) and [FuseJS](https://fusejs.io/)
-- Web interface uses [Express](https://expressjs.com/)
-- AI features powered by [Claude API](https://www.anthropic.com/claude)
+## Contributing
 
-## Support
-
-- Report issues on [GitHub Issues](https://github.com/paulhshort/claude-explorer/issues)
-- Star the repo if you find it useful!
-
-## Roadmap
-
-- [ ] Advanced analytics dashboard
-- [ ] Conversation comparison tools
-- [ ] Custom export templates
-- [ ] Conversation tagging system
-- [ ] GraphQL API
-- [ ] Real-time collaboration features
+This is a personal fork with custom enhancements. For issues related to the original project, please refer to the [upstream repository](https://github.com/paulhshort/claude-explorer).
 
 ---
 
-Made with ❤️ by [Paul Short](https://github.com/paulhshort)
+## Author
+
+**Malyaj Nailwal** - Enhanced fork with OpenRouter integration, brain visualization, multi-provider support, and extensive UI/UX improvements.
+
+---
+
+Made with ❤️ by [Paul Short](https://github.com/paulhshort) | Enhanced by [Malyaj Nailwal](https://github.com/malyajnailwal)
