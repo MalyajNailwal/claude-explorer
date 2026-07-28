@@ -1,34 +1,50 @@
 /**
- * Model selection and configuration
+ * Model selection and configuration - Multi-provider support
  */
 
+export enum ModelProvider {
+  ANTHROPIC = 'anthropic',
+  OPENROUTER = 'openrouter',
+}
+
 export enum ModelType {
+  // Anthropic models
   SONNET_4_5 = 'claude-sonnet-4-5-20250514',
   HAIKU_4_5 = 'claude-haiku-4-5-20250514',
+  // OpenRouter models will be added dynamically
 }
 
 export interface ModelConfig {
-  name: ModelType;
+  name: string;
+  provider: ModelProvider;
   maxTokens: number;
   description: string;
   costPerMillionInputTokens: number;
   costPerMillionOutputTokens: number;
+  quality?: 'high' | 'medium' | 'low';
+  speed?: 'fast' | 'moderate' | 'slow';
 }
 
-export const MODELS: Record<ModelType, ModelConfig> = {
+export const MODELS: Record<string, ModelConfig> = {
   [ModelType.SONNET_4_5]: {
     name: ModelType.SONNET_4_5,
+    provider: ModelProvider.ANTHROPIC,
     maxTokens: 8192,
     description: 'Most capable model for complex reasoning and analysis',
     costPerMillionInputTokens: 3.0,
     costPerMillionOutputTokens: 15.0,
+    quality: 'high',
+    speed: 'moderate',
   },
   [ModelType.HAIKU_4_5]: {
     name: ModelType.HAIKU_4_5,
+    provider: ModelProvider.ANTHROPIC,
     maxTokens: 8192,
     description: 'Fast and efficient for simple tasks',
     costPerMillionInputTokens: 0.8,
     costPerMillionOutputTokens: 4.0,
+    quality: 'medium',
+    speed: 'fast',
   },
 };
 
@@ -38,11 +54,51 @@ export interface TaskComplexity {
 }
 
 /**
- * Select appropriate model based on task complexity
+ * Model selector with multi-provider support
  */
 export class ModelSelector {
+  private openRouterModels: Map<string, ModelConfig> = new Map();
+
   /**
-   * Determine model based on task type
+   * Add OpenRouter models dynamically
+   */
+  addOpenRouterModels(models: Array<{
+    id: string;
+    name: string;
+    pricing: { prompt: string; completion: string };
+    context_length: number;
+  }>): void {
+    models.forEach(model => {
+      const config: ModelConfig = {
+        name: model.id,
+        provider: ModelProvider.OPENROUTER,
+        maxTokens: model.context_length || 4096,
+        description: model.name,
+        costPerMillionInputTokens: parseFloat(model.pricing.prompt) || 0,
+        costPerMillionOutputTokens: parseFloat(model.pricing.completion) || 0,
+        quality: 'medium',
+        speed: 'moderate',
+      };
+      this.openRouterModels.set(model.id, config);
+      MODELS[model.id] = config;
+    });
+  }
+
+  /**
+   * Get all available models
+   */
+  getAllModels(): ModelConfig[] {
+    return Object.values(MODELS);
+  }
+
+  /**
+   * Get models by provider
+   */
+  getModelsByProvider(provider: ModelProvider): ModelConfig[] {
+    return Object.values(MODELS).filter(m => m.provider === provider);
+  }
+  /**
+   * Select appropriate model based on task complexity
    */
   selectModel(task: {
     type: 'search' | 'details' | 'export' | 'analyze' | 'chat';
@@ -87,11 +143,13 @@ export class ModelSelector {
    * Estimate cost for a task
    */
   estimateCost(
-    model: ModelType,
+    model: string,
     inputTokens: number,
     outputTokens: number
   ): number {
     const config = MODELS[model];
+    if (!config) return 0;
+    
     const inputCost =
       (inputTokens / 1_000_000) * config.costPerMillionInputTokens;
     const outputCost =
@@ -102,36 +160,54 @@ export class ModelSelector {
   /**
    * Get model info
    */
-  getModelInfo(model: ModelType): ModelConfig {
+  getModelInfo(model: string): ModelConfig | undefined {
     return MODELS[model];
   }
 
   /**
-   * Compare models
+   * Compare models - now includes all providers
    */
   compareModels(): {
     model: string;
+    provider: ModelProvider;
     description: string;
     speed: string;
     cost: string;
     bestFor: string;
   }[] {
-    return [
-      {
-        model: 'Sonnet 4.5',
-        description: 'Most capable, best reasoning',
-        speed: 'Moderate',
-        cost: '$3-15 per million tokens',
-        bestFor: 'Complex queries, multi-step tasks, analysis',
-      },
-      {
-        model: 'Haiku 4.5',
-        description: 'Fast and efficient',
-        speed: 'Fast',
-        cost: '$0.8-4 per million tokens',
-        bestFor: 'Simple searches, quick exports, listings',
-      },
-    ];
+    const models = [];
+    
+    // Anthropic models
+    models.push({
+      model: 'Sonnet 4.5',
+      provider: ModelProvider.ANTHROPIC,
+      description: 'Most capable, best reasoning',
+      speed: 'Moderate',
+      cost: '$3-15 per million tokens',
+      bestFor: 'Complex queries, multi-step tasks, analysis',
+    });
+    models.push({
+      model: 'Haiku 4.5',
+      provider: ModelProvider.ANTHROPIC,
+      description: 'Fast and efficient',
+      speed: 'Fast',
+      cost: '$0.8-4 per million tokens',
+      bestFor: 'Simple searches, quick exports, listings',
+    });
+
+    // OpenRouter models
+    for (const [_id, config] of this.openRouterModels.entries()) {
+      models.push({
+        model: config.name,
+        provider: ModelProvider.OPENROUTER,
+        description: config.description,
+        speed: config.speed || 'moderate',
+        cost: `$${config.costPerMillionInputTokens}-${config.costPerMillionOutputTokens} per million tokens`,
+        bestFor: 'Varies by model',
+      });
+    }
+
+    return models;
   }
 }
 
