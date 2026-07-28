@@ -1,6 +1,8 @@
 # Claude Explorer
 
-> A powerful tool for parsing, searching, and extracting insights from your Claude.ai conversation history.
+> **Never lose context from your Claude.ai conversations again.**
+> 
+> Claude Explorer turns your scattered chat history into a searchable, explorable knowledge base — with AI-powered search, topic visualization, and smart export. Perfect for recovering lost context, building knowledge bases, or migrating between accounts.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org/)
