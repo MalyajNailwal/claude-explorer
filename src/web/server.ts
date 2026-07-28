@@ -14,7 +14,7 @@ import { ClaudeCodeLibrarian } from '../core/claude-code-librarian.js';
 import { tmpdir } from 'os';
 import multer from 'multer';
 import AdmZip from 'adm-zip';
-import { existsSync, mkdirSync, rmSync } from 'fs';
+import { existsSync, mkdirSync, rmSync, readdirSync, statSync } from 'fs';
 import { readFile } from 'fs/promises';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -63,16 +63,26 @@ const upload = multer({
 async function initializeData(path: string) {
   dataPath = path;
   parser = new ClaudeDataParser(path);
-  await parser.load();
+  
+  try {
+    await parser.load();
 
-  indexer = new SearchIndexer();
-  indexer.buildIndex(parser.getConversationsWithMessages());
+    indexer = new SearchIndexer();
+    indexer.buildIndex(parser.getConversationsWithMessages());
 
-  filterEngine = new FilterEngine();
+    filterEngine = new FilterEngine();
 
-  console.log(`✓ Loaded data from: ${path}`);
-  console.log(`✓ ${parser.getStats().totalConversations} conversations`);
-  console.log(`✓ ${parser.getStats().totalProjects} projects`);
+    console.log(`✓ Loaded data from: ${path}`);
+    console.log(`✓ ${parser.getStats().totalConversations} conversations`);
+    console.log(`✓ ${parser.getStats().totalProjects} projects`);
+  } catch (error) {
+    console.log(`⚠ No data found at ${path}`);
+    console.log(`  Upload your Claude.ai export via the web UI to get started`);
+    
+    // Initialize with empty state
+    indexer = new SearchIndexer();
+    filterEngine = new FilterEngine();
+  }
 
   // Try to initialize Claude Code librarian
   try {
@@ -301,6 +311,41 @@ app.get('/api/assistant/status', (_req: Request, res: Response) => {
 // Chat with AI assistant
 app.post('/api/assistant/chat', async (req: Request, res: Response) => {
   try {
+    const { message, model, provider, apiKey } = req.body;
+
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({ error: 'Message is required' });
+    }
+
+    console.log(`[AI Assistant] Received message: ${message.substring(0, 100)}...`);
+    console.log(`[AI Assistant] Provider: ${provider || 'default'}, Model: ${model || 'default'}`);
+
+    // If OpenRouter provider and API key provided, use OpenRouter directly
+    if (provider === 'openrouter' && apiKey) {
+      const { OpenRouterClient } = await import('../core/openrouter-client.js');
+      const client = new OpenRouterClient(apiKey);
+      
+      const messages = [
+        {
+          role: 'system' as const,
+          content: 'You are a helpful AI assistant for Claude Explorer. Help users search, explore, and understand their Claude conversation history.',
+        },
+        {
+          role: 'user' as const,
+          content: message,
+        },
+      ];
+
+      const response = await client.chatCompletion(messages, model || 'openai/gpt-3.5-turbo');
+      
+      return res.json({
+        response: response.choices[0]?.message?.content || 'No response',
+        model: response.model,
+        tokensUsed: response.usage.total_tokens,
+      });
+    }
+
+    // Otherwise, use Claude Code Librarian (default)
     if (!librarian) {
       // Try to initialize if not already done
       try {
@@ -315,13 +360,7 @@ app.post('/api/assistant/chat', async (req: Request, res: Response) => {
       }
     }
 
-    const { message } = req.body;
-
-    if (!message || typeof message !== 'string') {
-      return res.status(400).json({ error: 'Message is required' });
-    }
-
-    console.log(`[AI Assistant] Received message: ${message.substring(0, 100)}...`);
+    console.log(`[AI Assistant] Using Claude Code Librarian`);
     const response = await librarian.chat(message);
     console.log(`[AI Assistant] Response: ${response.success ? 'Success' : 'Failed'}`);
 
@@ -343,6 +382,31 @@ app.post('/api/assistant/chat', async (req: Request, res: Response) => {
     });
   }
 });
+
+/**
+ * Helper: Find files recursively in directory
+ */
+function findFilesRecursive(dir: string, targetFiles: string[]): Map<string, string> {
+  const found = new Map<string, string>();
+  
+  function search(currentPath: string) {
+    const entries = readdirSync(currentPath);
+    
+    for (const entry of entries) {
+      const fullPath = join(currentPath, entry);
+      const stat = statSync(fullPath);
+      
+      if (stat.isDirectory()) {
+        search(fullPath);
+      } else if (targetFiles.includes(entry)) {
+        found.set(entry, fullPath);
+      }
+    }
+  }
+  
+  search(dir);
+  return found;
+}
 
 /**
  * File Upload Routes
@@ -367,16 +431,16 @@ app.post('/api/upload', upload.single('file'), async (req: Request, res: Respons
       const zip = new AdmZip(file.path);
       zip.extractAllTo(extractPath, true);
 
-      // Validate that required files exist
-      const requiredFiles = ['conversations.json', 'projects.json', 'users.json'];
-      const missingFiles: string[] = [];
+      // Find required files recursively
+      const requiredFiles = ['conversations.json'];
+      const optionalFiles = ['projects.json', 'users.json'];
+      const allTargetFiles = [...requiredFiles, ...optionalFiles];
+      const foundFiles = findFilesRecursive(extractPath, allTargetFiles);
+      const missingFiles = requiredFiles.filter(f => !foundFiles.has(f));
 
-      for (const requiredFile of requiredFiles) {
-        const filePath = join(extractPath, requiredFile);
-        if (!existsSync(filePath)) {
-          missingFiles.push(requiredFile);
-        }
-      }
+      console.log(`[Upload] Extracted to: ${extractPath}`);
+      console.log(`[Upload] Found files:`, Array.from(foundFiles.keys()));
+      console.log(`[Upload] Missing optional files:`, optionalFiles.filter(f => !foundFiles.has(f)));
 
       if (missingFiles.length > 0) {
         // Clean up
@@ -389,8 +453,7 @@ app.post('/api/upload', upload.single('file'), async (req: Request, res: Respons
 
       // Verify files are valid JSON
       try {
-        for (const requiredFile of requiredFiles) {
-          const filePath = join(extractPath, requiredFile);
+        for (const [_filename, filePath] of foundFiles) {
           const fileContent = await readFile(filePath, 'utf-8');
           JSON.parse(fileContent);
         }
@@ -402,14 +465,35 @@ app.post('/api/upload', upload.single('file'), async (req: Request, res: Respons
         });
       }
 
-      // Clear previous uploaded data if exists
-      if (uploadedDataPath && existsSync(uploadedDataPath)) {
-        rmSync(uploadedDataPath, { recursive: true, force: true });
+      // Create empty optional files if they don't exist
+      const conversationsPath = foundFiles.get('conversations.json')!;
+      const filesDir = join(conversationsPath, '..');
+      
+      for (const optionalFile of optionalFiles) {
+        if (!foundFiles.has(optionalFile)) {
+          const emptyFilePath = join(filesDir, optionalFile);
+          await import('fs/promises').then(fs => fs.writeFile(emptyFilePath, '[]', 'utf-8'));
+          foundFiles.set(optionalFile, emptyFilePath);
+          console.log(`[Upload] Created empty ${optionalFile} at ${emptyFilePath}`);
+        }
       }
 
-      // Update data path and reload
-      uploadedDataPath = extractPath;
-      await initializeData(extractPath);
+      // If files are in subdirectory, move them to root for consistency
+      if (filesDir !== extractPath) {
+        // Files are in subdirectory, use that as the data path
+        if (uploadedDataPath && existsSync(uploadedDataPath)) {
+          rmSync(uploadedDataPath, { recursive: true, force: true });
+        }
+        uploadedDataPath = filesDir;
+        await initializeData(filesDir);
+      } else {
+        // Files are at root, use extractPath
+        if (uploadedDataPath && existsSync(uploadedDataPath)) {
+          rmSync(uploadedDataPath, { recursive: true, force: true });
+        }
+        uploadedDataPath = extractPath;
+        await initializeData(extractPath);
+      }
 
       const stats = parser.getStats();
 
@@ -477,6 +561,148 @@ app.post('/api/upload/clear', async (_req: Request, res: Response) => {
     res.status(500).json({
       error: 'Failed to clear uploaded data',
       message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
+ * OpenRouter & API Key Management Routes
+ */
+
+// Get available models (Anthropic + OpenRouter)
+app.get('/api/models', async (req: Request, res: Response) => {
+  try {
+    const { OpenRouterClient } = await import('../core/openrouter-client.js');
+    const { ModelProvider } = await import('../core/models.js');
+    
+    const models = [];
+    
+    // Add Anthropic models
+    models.push({
+      id: 'claude-sonnet-4-5-20250514',
+      name: 'Claude Sonnet 4.5',
+      provider: ModelProvider.ANTHROPIC,
+      description: 'Most capable model for complex reasoning',
+      quality: 'high',
+      speed: 'moderate',
+      cost: '$3-15 per million tokens',
+    });
+    models.push({
+      id: 'claude-haiku-4-5-20250514',
+      name: 'Claude Haiku 4.5',
+      provider: ModelProvider.ANTHROPIC,
+      description: 'Fast and efficient for simple tasks',
+      quality: 'medium',
+      speed: 'fast',
+      cost: '$0.8-4 per million tokens',
+    });
+
+    // Add OpenRouter models if API key is available
+    const openRouterKey = req.query.openrouter_key as string;
+    if (openRouterKey) {
+      try {
+        const client = new OpenRouterClient(openRouterKey);
+        const openRouterModels = await client.getPopularModels();
+        
+        openRouterModels.forEach(model => {
+          models.push({
+            id: model.id,
+            name: model.name,
+            provider: ModelProvider.OPENROUTER,
+            description: model.description || 'OpenRouter model',
+            quality: 'medium',
+            speed: 'moderate',
+            cost: `~$${parseFloat(model.pricing.prompt || '0')}-${parseFloat(model.pricing.completion || '0')} per million tokens`,
+          });
+        });
+      } catch (error) {
+        console.warn('Failed to fetch OpenRouter models:', error);
+      }
+    }
+
+    return res.json({ models });
+  } catch (error) {
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// Chat with OpenRouter
+app.post('/api/openrouter/chat', async (req: Request, res: Response) => {
+  try {
+    const { OpenRouterClient } = await import('../core/openrouter-client.js');
+    const { apiKey, model, messages } = req.body;
+
+    if (!apiKey || !model || !messages) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const client = new OpenRouterClient(apiKey);
+    const response = await client.chatCompletion(messages, model);
+
+    return res.json({
+      response: response.choices[0]?.message?.content || '',
+      model: response.model,
+      tokensUsed: response.usage.total_tokens,
+    });
+  } catch (error) {
+    console.error('[OpenRouter] Chat error:', error);
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// Stream chat with OpenRouter
+app.post('/api/openrouter/chat/stream', async (req: Request, res: Response) => {
+  try {
+    const { OpenRouterClient } = await import('../core/openrouter-client.js');
+    const { apiKey, model, messages } = req.body;
+
+    if (!apiKey || !model || !messages) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    const client = new OpenRouterClient(apiKey);
+    const stream = client.chatCompletionStream(messages, model);
+
+    for await (const chunk of stream) {
+      res.write(`data: ${JSON.stringify({ content: chunk })}\n\n`);
+    }
+
+    res.write('data: [DONE]\n\n');
+    res.end();
+    return;
+  } catch (error) {
+    console.error('[OpenRouter] Stream error:', error);
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// Validate API key
+app.post('/api/validate-key', async (req: Request, res: Response) => {
+  try {
+    const { provider, apiKey } = req.body;
+
+    if (provider === 'openrouter') {
+      const { OpenRouterClient } = await import('../core/openrouter-client.js');
+      const client = new OpenRouterClient(apiKey);
+      const isValid = await client.validateKey();
+      return res.json({ valid: isValid });
+    }
+
+    // Add other provider validation here
+    return res.json({ valid: false, error: 'Unknown provider' });
+  } catch (error) {
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });
