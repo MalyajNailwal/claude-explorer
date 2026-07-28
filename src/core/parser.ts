@@ -18,15 +18,27 @@ export class ClaudeDataParser {
    * Load all data from export files
    */
   async load(): Promise<void> {
-    const [conversationsData, projectsData, usersData] = await Promise.all([
-      this.loadJSON<Conversation[]>('conversations.json'),
-      this.loadJSON<Project[]>('projects.json'),
-      this.loadJSON<User[]>('users.json'),
-    ]);
+    // Load each file independently so one failure doesn't break everything
+    try {
+      this.conversations = await this.loadJSON<Conversation[]>('conversations.json');
+    } catch (error) {
+      console.warn(`⚠ Could not load conversations.json: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      this.conversations = [];
+    }
 
-    this.conversations = conversationsData;
-    this.projects = projectsData;
-    this.users = usersData;
+    try {
+      this.projects = await this.loadJSON<Project[]>('projects.json');
+    } catch (error) {
+      console.warn(`⚠ Could not load projects.json: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      this.projects = [];
+    }
+
+    try {
+      this.users = await this.loadJSON<User[]>('users.json');
+    } catch (error) {
+      console.warn(`⚠ Could not load users.json: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      this.users = [];
+    }
   }
 
   /**
@@ -129,6 +141,19 @@ export class ClaudeDataParser {
   private async loadJSON<T>(filename: string): Promise<T> {
     const filePath = `${this.dataPath}/${filename}`;
     const content = await readFile(filePath, 'utf-8');
-    return JSON.parse(content) as T;
+    
+    // Handle empty files
+    if (!content || content.trim() === '') {
+      throw new Error('File is empty');
+    }
+    
+    const parsed = JSON.parse(content);
+    
+    // Validate it's an array for expected array types
+    if (!Array.isArray(parsed)) {
+      throw new Error('Expected array format');
+    }
+    
+    return parsed as T;
   }
 }
