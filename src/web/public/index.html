@@ -8,6 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/tsparticles@3/tsparticles.bundle.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -159,35 +160,102 @@
         </div>
 
         <div class="tab-content hidden" id="assistant-tab">
-            <div class="terminal-container">
-                <div class="terminal-header">
-                    <h3>🤖 AI Librarian Assistant</h3>
-                    <p class="terminal-subtitle">Ask questions about your conversations, search for specific topics, or create knowledge bases.</p>
-                    <div class="model-info">
-                        <span class="model-badge">Sonnet 4.5</span>
-                        <span class="status-badge" id="auth-status">Checking...</span>
-                    </div>
-                </div>
-                <div class="terminal-output" id="terminal-output">
-                    <div class="terminal-message system-message">
-                        <div class="message-icon">ℹ️</div>
-                        <div class="message-content">
-                            <strong>Welcome to Claude Explorer AI Assistant!</strong><br><br>
-                            I can help you with:<br>
-                            • <strong>Search conversations:</strong> "Find conversations about React from 2024"<br>
-                            • <strong>Get details:</strong> "Show me the details of conversation X"<br>
-                            • <strong>Export content:</strong> "Export conversations about TypeScript as markdown"<br>
-                            • <strong>Create bundles:</strong> "Create a knowledge base about authentication"<br>
-                            • <strong>Analyze patterns:</strong> "What topics do I discuss most?"<br><br>
-                            Type your question below to get started!
+            <div class="assistant-layout">
+                <!-- Left Side: AI Conversation -->
+                <div class="assistant-left">
+                    <div class="terminal-container">
+                        <div class="terminal-header">
+                            <h3>🤖 AI Librarian Assistant</h3>
+                            <p class="terminal-subtitle">Ask questions about your conversations, search for specific topics, or create knowledge bases.</p>
+                            <div class="model-info">
+                                <select id="model-selector" class="model-selector">
+                                    <option value="claude-sonnet-4-5-20250514">Claude Sonnet 4.5</option>
+                                    <option value="claude-haiku-4-5-20250514">Claude Haiku 4.5</option>
+                                </select>
+                                <button id="settings-btn" class="btn-icon btn-sm" title="API Settings">⚙️</button>
+                                <span class="status-badge" id="auth-status">Checking...</span>
+                            </div>
+                        </div>
+                        <div class="terminal-output" id="terminal-output">
+                            <div class="terminal-message system-message">
+                                <div class="message-icon">ℹ️</div>
+                                <div class="message-content">
+                                    <strong>Welcome to Claude Explorer AI Assistant!</strong><br><br>
+                                    I can help you with:<br>
+                                    • <strong>Search conversations:</strong> "Find conversations about React from 2024"<br>
+                                    • <strong>Get details:</strong> "Show me the details of conversation X"<br>
+                                    • <strong>Export content:</strong> "Export conversations about TypeScript as markdown"<br>
+                                    • <strong>Create bundles:</strong> "Create a knowledge base about authentication"<br>
+                                    • <strong>Analyze patterns:</strong> "What topics do I discuss most?"<br><br>
+                                    Type your question below to get started!
+                                </div>
+                            </div>
+                        </div>
+                        <div class="terminal-input-container">
+                            <textarea id="terminal-input" placeholder="Ask me anything about your Claude conversations..." rows="3"></textarea>
+                            <div class="terminal-actions">
+                                <button id="clear-chat-btn" class="btn btn-sm">Clear Chat</button>
+                                <button id="send-btn" class="btn btn-primary">Send</button>
+                            </div>
                         </div>
                     </div>
                 </div>
-                <div class="terminal-input-container">
-                    <textarea id="terminal-input" placeholder="Ask me anything about your Claude conversations..." rows="3"></textarea>
-                    <div class="terminal-actions">
-                        <button id="clear-chat-btn" class="btn btn-sm">Clear Chat</button>
-                        <button id="send-btn" class="btn btn-primary">Send</button>
+                
+                <!-- Right Side: Brain Visualization -->
+                <div class="assistant-right">
+                    <div class="brain-container">
+                        <div class="brain-header">
+                            <h3>🧠 Neural Network</h3>
+                            <p class="brain-subtitle">Your conversation network</p>
+                        </div>
+                        <div id="brain-particles" class="brain-particles"></div>
+                        <!-- Topic Legend -->
+                        <div class="brain-legend" id="brain-legend">
+                            <div class="legend-item" data-topic="code">
+                                <span class="legend-color" style="background: #3b82f6;"></span>
+                                <span class="legend-label">Code</span>
+                            </div>
+                            <div class="legend-item" data-topic="design">
+                                <span class="legend-color" style="background: #ec4899;"></span>
+                                <span class="legend-label">Design</span>
+                            </div>
+                            <div class="legend-item" data-topic="ai">
+                                <span class="legend-color" style="background: #8b5cf6;"></span>
+                                <span class="legend-label">AI/ML</span>
+                            </div>
+                            <div class="legend-item" data-topic="business">
+                                <span class="legend-color" style="background: #10b981;"></span>
+                                <span class="legend-label">Business</span>
+                            </div>
+                            <div class="legend-item" data-topic="learning">
+                                <span class="legend-color" style="background: #f59e0b;"></span>
+                                <span class="legend-label">Learning</span>
+                            </div>
+                            <div class="legend-item" data-topic="writing">
+                                <span class="legend-color" style="background: #06b6d4;"></span>
+                                <span class="legend-label">Writing</span>
+                            </div>
+                            <div class="legend-item" data-topic="data">
+                                <span class="legend-color" style="background: #ef4444;"></span>
+                                <span class="legend-label">Data</span>
+                            </div>
+                            <div class="legend-item" data-topic="personal">
+                                <span class="legend-color" style="background: #84cc16;"></span>
+                                <span class="legend-label">Personal</span>
+                            </div>
+                        </div>
+                        <div class="brain-info">
+                            <div class="brain-stat">
+                                <span class="stat-icon"></span>
+                                <span class="stat-label">Active Nodes</span>
+                                <span class="stat-value" id="active-nodes">0</span>
+                            </div>
+                            <div class="brain-stat">
+                                <span class="stat-icon">🔗</span>
+                                <span class="stat-label">Connections</span>
+                                <span class="stat-value" id="active-connections">0</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -333,6 +401,62 @@
                         <p style="margin-top: 16px; font-size: 0.9rem; color: var(--text-muted);">
                             For more information, consult the README.md file in the project root.
                         </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Modal for API Keys -->
+        <div id="settings-modal" class="modal hidden" role="dialog" aria-labelledby="settings-title" aria-modal="true">
+            <div class="modal-content settings-modal-content">
+                <button class="modal-close" aria-label="Close Settings">&times;</button>
+                <div class="settings-content">
+                    <h2 id="settings-title">⚙️ API Settings</h2>
+                    
+                    <div class="settings-section">
+                        <h3>🔑 API Keys</h3>
+                        <p>Manage your API keys for different AI providers. Keys are stored securely in your browser.</p>
+                        
+                        <div class="api-key-group">
+                            <label for="anthropic-key">Anthropic API Key</label>
+                            <div class="api-key-input-group">
+                                <input type="password" id="anthropic-key" placeholder="sk-ant-..." autocomplete="off">
+                                <button id="save-anthropic-key" class="btn btn-sm btn-primary">Save</button>
+                                <button id="clear-anthropic-key" class="btn btn-sm">Clear</button>
+                            </div>
+                            <span class="api-key-status" id="anthropic-status">Not configured</span>
+                        </div>
+
+                        <div class="api-key-group">
+                            <label for="openrouter-key">OpenRouter API Key</label>
+                            <div class="api-key-input-group">
+                                <input type="password" id="openrouter-key" placeholder="sk-or-..." autocomplete="off">
+                                <button id="save-openrouter-key" class="btn btn-sm btn-primary">Save & Validate</button>
+                                <button id="clear-openrouter-key" class="btn btn-sm">Clear</button>
+                            </div>
+                            <span class="api-key-status" id="openrouter-status">Not configured</span>
+                            <a href="https://openrouter.ai/keys" target="_blank" class="settings-link">Get OpenRouter API Key →</a>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>💾 Data Management</h3>
+                        <p>Manage your stored data and preferences.</p>
+                        
+                        <div class="settings-actions">
+                            <button id="export-settings" class="btn btn-sm">Export Settings</button>
+                            <button id="import-settings" class="btn btn-sm">Import Settings</button>
+                            <button id="clear-all-data" class="btn btn-sm btn-danger">Clear All Data</button>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>ℹ️ About</h3>
+                        <div class="settings-info">
+                            <p><strong>Storage:</strong> Browser IndexedDB</p>
+                            <p><strong>Models:</strong> Anthropic + OpenRouter (200+ models)</p>
+                            <p><strong>Privacy:</strong> All data stored locally in your browser</p>
+                        </div>
                     </div>
                 </div>
             </div>
