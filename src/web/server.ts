@@ -427,7 +427,7 @@ INSTRUCTIONS:
 });
 
 /**
- * Build conversation context for RAG
+ * Smart Context Builder - Multi-signal scoring + intelligent extraction
  */
 async function buildConversationContext(query: string, maxResults: number = 5): Promise<string> {
   if (!parser) return '';
@@ -437,36 +437,67 @@ async function buildConversationContext(query: string, maxResults: number = 5): 
 
   const queryLower = query.toLowerCase();
   const queryWords = queryLower.split(/\s+/).filter(w => w.length > 3);
+  
+  // Extract date intent from query (e.g., "last week", "March", "2024")
+  const dateFilter = extractDateIntent(query);
 
-  // Score conversations by relevance
+  // Score conversations with multi-signal approach
   const scored = conversations.map(conv => {
     let score = 0;
     const name = conv.name?.toLowerCase() || '';
     const summary = conv.summary?.toLowerCase() || '';
+    const messages = conv.chat_messages || [];
+    const createdDate = new Date(conv.created_at);
+    const daysAgo = (Date.now() - createdDate.getTime()) / (1000 * 60 * 60 * 24);
 
-    // Name match (high weight)
+    // 1. Name match (high weight - 10x)
     if (name.includes(queryLower)) score += 10;
     queryWords.forEach(word => {
       if (name.includes(word)) score += 3;
     });
 
-    // Summary match (medium weight)
+    // 2. Summary match (medium weight - 5x)
     if (summary.includes(queryLower)) score += 5;
     queryWords.forEach(word => {
       if (summary.includes(word)) score += 2;
     });
 
-    // Message content match (lower weight, check first 20 messages)
-    const messagesToCheck = conv.chat_messages?.slice(0, 20) || [];
-    messagesToCheck.forEach(msg => {
+    // 3. Message content match (variable weight)
+    const relevantMessages: Array<{ msg: any; idx: number; score: number }> = [];
+    messages.forEach((msg, idx) => {
       const text = (msg.text || '').toLowerCase();
-      if (text.includes(queryLower)) score += 2;
+      let msgScore = 0;
+      
+      if (text.includes(queryLower)) msgScore += 5;
       queryWords.forEach(word => {
-        if (text.includes(word)) score += 1;
+        if (text.includes(word)) msgScore += 2;
       });
+      
+      if (msgScore > 0) {
+        relevantMessages.push({ msg, idx, score: msgScore });
+        score += msgScore;
+      }
     });
 
-    return { conv, score };
+    // 4. Recency boost (recent conversations get boost)
+    if (daysAgo < 7) score += 3;
+    else if (daysAgo < 30) score += 2;
+    else if (daysAgo < 90) score += 1;
+
+    // 5. Depth signal (longer conversations = more important)
+    if (messages.length > 20) score += 2;
+    else if (messages.length > 10) score += 1;
+
+    // 6. Date filter match
+    if (dateFilter && !matchesDateFilter(createdDate, dateFilter)) {
+      score = 0; // Exclude if doesn't match date filter
+    }
+
+    return { 
+      conv, 
+      score, 
+      relevantMessages: relevantMessages.sort((a, b) => b.score - a.score).slice(0, 3)
+    };
   });
 
   // Sort by score, take top results
@@ -477,29 +508,89 @@ async function buildConversationContext(query: string, maxResults: number = 5): 
 
   if (top.length === 0) return '';
 
-  // Format context
-  const contextParts = top.map(({ conv, score }) => {
+  // Format context with smart extraction
+  const contextParts = top.map(({ conv, score, relevantMessages }) => {
     const messages = conv.chat_messages || [];
-    const recentMessages = messages.slice(-5); // Last 5 messages for context
+    const date = new Date(conv.created_at);
+    const dateStr = date.toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric' 
+    });
 
-    const messageSummary = recentMessages
-      .map(m => `${m.sender}: ${(m.text || '').substring(0, 200)}`)
-      .join('\n');
+    // Build key points from relevant messages
+    const keyPoints = relevantMessages.map(({ msg }) => {
+      const sender = msg.sender === 'human' ? 'You' : 'AI';
+      const text = (msg.text || '').trim();
+      // Truncate long messages but keep context
+      const truncated = text.length > 300 ? text.substring(0, 300) + '...' : text;
+      return `• ${sender}: ${truncated}`;
+    });
 
-    return `## Conversation: ${conv.name || 'Untitled'}
-- **Date**: ${new Date(conv.created_at).toLocaleDateString()}
-- **Messages**: ${messages.length}
-- **Relevance Score**: ${score}
+    const pointsStr = keyPoints.length > 0 
+      ? keyPoints.join('\n')
+      : `• ${messages.length} messages, no direct match found`;
 
-${conv.summary ? `**Summary**: ${conv.summary}\n\n` : ''}
+    return `### "${conv.name || 'Untitled'}" (${dateStr})
+**Relevance**: ${'★'.repeat(Math.min(5, Math.ceil(score / 5)))}${'☆'.repeat(5 - Math.min(5, Math.ceil(score / 5)))} (${score} pts)
+**Messages**: ${messages.length}
 
-**Recent Messages**:
-${messageSummary}
+${conv.summary ? `**Summary**: ${conv.summary}\n` : ''}
+**Key Points**:
+${pointsStr}
 
 ---`;
   });
 
-  return 'RELEVANT CONVERSATIONS FROM USER HISTORY:\n\n' + contextParts.join('\n\n');
+  return `USER'S RELEVANT CONVERSATIONS (use these to answer):\n\n` + contextParts.join('\n');
+}
+
+/**
+ * Extract date intent from query
+ */
+function extractDateIntent(query: string): { type: 'recent' | 'month' | 'year'; value?: string } | null {
+  const lower = query.toLowerCase();
+  
+  if (lower.includes('last week') || lower.includes('recent') || lower.includes('today') || lower.includes('yesterday')) {
+    return { type: 'recent' };
+  }
+  
+  const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+  for (const month of months) {
+    if (lower.includes(month)) {
+      return { type: 'month', value: month };
+    }
+  }
+  
+  const yearMatch = lower.match(/\b(20\d{2}|19\d{2})\b/);
+  if (yearMatch) {
+    return { type: 'year', value: yearMatch[1] };
+  }
+  
+  return null;
+}
+
+/**
+ * Check if date matches filter
+ */
+function matchesDateFilter(date: Date, filter: { type: string; value?: string }): boolean {
+  const now = new Date();
+  
+  if (filter.type === 'recent') {
+    const daysAgo = (now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24);
+    return daysAgo <= 7;
+  }
+  
+  if (filter.type === 'month' && filter.value) {
+    const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+    return date.getMonth() === months.indexOf(filter.value.toLowerCase());
+  }
+  
+  if (filter.type === 'year' && filter.value) {
+    return date.getFullYear() === parseInt(filter.value);
+  }
+  
+  return true;
 }
 
 /**
