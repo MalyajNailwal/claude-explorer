@@ -1770,7 +1770,7 @@ async function initBrainParticles() {
       this.conversation = conv;
       this.topics = extractTopics(conv.name, conv.chat_messages);
       this.color = topicColors[this.topics[0]] || topicColors['other'];
-      this.radius = Math.min(Math.max(conv.chat_messages?.length || 0, 5), 15);
+      this.radius = Math.min(Math.max(conv.chat_messages?.length || 0, 3), 8);
       this.x = Math.random() * canvas.width;
       this.y = Math.random() * canvas.height;
       this.vx = (Math.random() - 0.5) * 1;

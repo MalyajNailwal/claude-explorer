@@ -1523,14 +1523,17 @@ a:focus-visible {
     display: grid;
     grid-template-columns: 1fr 400px;
     gap: 20px;
-    height: calc(100vh - 200px);
-    min-height: 600px;
+    height: calc(100vh - 250px);
+    min-height: 500px;
+    max-height: 700px;
+    overflow: hidden;
 }
 
 .assistant-left {
     display: flex;
     flex-direction: column;
     min-width: 0;
+    overflow: hidden;
 }
 
 .assistant-left .terminal-container {
@@ -1538,11 +1541,13 @@ a:focus-visible {
     display: flex;
     flex-direction: column;
     position: relative;
+    overflow: hidden;
 }
 
 .assistant-right {
     display: flex;
     flex-direction: column;
+    overflow: hidden;
 }
 
 .brain-container {
@@ -1556,6 +1561,7 @@ a:focus-visible {
     position: relative;
     border: 2px solid var(--primary);
     min-height: 500px;
+    max-height: 700px;
 }
 
 .brain-header {

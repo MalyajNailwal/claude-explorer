@@ -320,15 +320,39 @@ app.post('/api/assistant/chat', async (req: Request, res: Response) => {
     console.log(`[AI Assistant] Received message: ${message.substring(0, 100)}...`);
     console.log(`[AI Assistant] Provider: ${provider || 'default'}, Model: ${model || 'default'}`);
 
+    // Build context from conversations (RAG)
+    let conversationContext = '';
+    try {
+      conversationContext = await buildConversationContext(message, 5);
+      if (conversationContext) {
+        console.log(`[AI Assistant] Found ${conversationContext.split('---').length - 1} relevant conversations`);
+      }
+    } catch (error) {
+      console.warn('[AI Assistant] Failed to build context:', error);
+    }
+
     // If OpenRouter provider and API key provided, use OpenRouter directly
     if (provider === 'openrouter' && apiKey) {
       const { OpenRouterClient } = await import('../core/openrouter-client.js');
       const client = new OpenRouterClient(apiKey);
       
+      const systemPrompt = conversationContext
+        ? `You are an AI assistant with access to the user's Claude.ai conversation history. Use the provided context to answer questions about their past conversations.
+
+${conversationContext}
+
+---
+INSTRUCTIONS:
+- Answer based on the conversation context above when relevant
+- If the context doesn't contain relevant info, say so honestly
+- Cite which conversation you're referencing when possible
+- Be concise and helpful`
+        : 'You are a helpful AI assistant for Claude Explorer. Help users search, explore, and understand their Claude conversation history.';
+
       const messages = [
         {
           role: 'system' as const,
-          content: 'You are a helpful AI assistant for Claude Explorer. Help users search, explore, and understand their Claude conversation history.',
+          content: systemPrompt,
         },
         {
           role: 'user' as const,
@@ -342,6 +366,7 @@ app.post('/api/assistant/chat', async (req: Request, res: Response) => {
         response: response.choices[0]?.message?.content || 'No response',
         model: response.model,
         tokensUsed: response.usage.total_tokens,
+        contextUsed: !!conversationContext,
       });
     }
 
@@ -356,6 +381,24 @@ app.post('/api/assistant/chat', async (req: Request, res: Response) => {
         return res.status(503).json({
           error: 'AI Assistant not available. Please ensure Claude Code is installed and authenticated.',
           hint: 'Run: claude login',
+        });
+      }
+    }
+
+    // Inject context into librarian if available
+    if (conversationContext) {
+      console.log(`[AI Assistant] Using Claude Code Librarian with context`);
+      const response = await librarian.chat(`${conversationContext}\n\n---\n\nUser Query: ${message}`);
+      console.log(`[AI Assistant] Response: ${response.success ? 'Success' : 'Failed'}`);
+
+      if (response.success) {
+        return res.json({
+          response: response.message,
+          contextUsed: true,
+        });
+      } else {
+        return res.status(500).json({
+          error: response.error || 'Failed to generate response',
         });
       }
     }
@@ -382,6 +425,82 @@ app.post('/api/assistant/chat', async (req: Request, res: Response) => {
     });
   }
 });
+
+/**
+ * Build conversation context for RAG
+ */
+async function buildConversationContext(query: string, maxResults: number = 5): Promise<string> {
+  if (!parser) return '';
+
+  const conversations = parser.getConversationsWithMessages();
+  if (conversations.length === 0) return '';
+
+  const queryLower = query.toLowerCase();
+  const queryWords = queryLower.split(/\s+/).filter(w => w.length > 3);
+
+  // Score conversations by relevance
+  const scored = conversations.map(conv => {
+    let score = 0;
+    const name = conv.name?.toLowerCase() || '';
+    const summary = conv.summary?.toLowerCase() || '';
+
+    // Name match (high weight)
+    if (name.includes(queryLower)) score += 10;
+    queryWords.forEach(word => {
+      if (name.includes(word)) score += 3;
+    });
+
+    // Summary match (medium weight)
+    if (summary.includes(queryLower)) score += 5;
+    queryWords.forEach(word => {
+      if (summary.includes(word)) score += 2;
+    });
+
+    // Message content match (lower weight, check first 20 messages)
+    const messagesToCheck = conv.chat_messages?.slice(0, 20) || [];
+    messagesToCheck.forEach(msg => {
+      const text = (msg.text || '').toLowerCase();
+      if (text.includes(queryLower)) score += 2;
+      queryWords.forEach(word => {
+        if (text.includes(word)) score += 1;
+      });
+    });
+
+    return { conv, score };
+  });
+
+  // Sort by score, take top results
+  const top = scored
+    .filter(s => s.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, maxResults);
+
+  if (top.length === 0) return '';
+
+  // Format context
+  const contextParts = top.map(({ conv, score }) => {
+    const messages = conv.chat_messages || [];
+    const recentMessages = messages.slice(-5); // Last 5 messages for context
+
+    const messageSummary = recentMessages
+      .map(m => `${m.sender}: ${(m.text || '').substring(0, 200)}`)
+      .join('\n');
+
+    return `## Conversation: ${conv.name || 'Untitled'}
+- **Date**: ${new Date(conv.created_at).toLocaleDateString()}
+- **Messages**: ${messages.length}
+- **Relevance Score**: ${score}
+
+${conv.summary ? `**Summary**: ${conv.summary}\n\n` : ''}
+
+**Recent Messages**:
+${messageSummary}
+
+---`;
+  });
+
+  return 'RELEVANT CONVERSATIONS FROM USER HISTORY:\n\n' + contextParts.join('\n\n');
+}
 
 /**
  * Helper: Find files recursively in directory
