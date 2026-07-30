@@ -8,9 +8,10 @@ export enum ModelProvider {
 }
 
 export enum ModelType {
-  // Anthropic models
-  SONNET_4_5 = 'claude-sonnet-4-5-20250514',
-  HAIKU_4_5 = 'claude-haiku-4-5-20250514',
+  // Anthropic models (dateless alias IDs)
+  OPUS_5 = 'claude-opus-5',
+  SONNET_5 = 'claude-sonnet-5',
+  HAIKU_4_5 = 'claude-haiku-4-5',
   // OpenRouter models will be added dynamically
 }
 
@@ -26,23 +27,33 @@ export interface ModelConfig {
 }
 
 export const MODELS: Record<string, ModelConfig> = {
-  [ModelType.SONNET_4_5]: {
-    name: ModelType.SONNET_4_5,
+  [ModelType.OPUS_5]: {
+    name: ModelType.OPUS_5,
     provider: ModelProvider.ANTHROPIC,
     maxTokens: 8192,
     description: 'Most capable model for complex reasoning and analysis',
+    costPerMillionInputTokens: 5.0,
+    costPerMillionOutputTokens: 25.0,
+    quality: 'high',
+    speed: 'moderate',
+  },
+  [ModelType.SONNET_5]: {
+    name: ModelType.SONNET_5,
+    provider: ModelProvider.ANTHROPIC,
+    maxTokens: 8192,
+    description: 'Best balance of speed and intelligence',
     costPerMillionInputTokens: 3.0,
     costPerMillionOutputTokens: 15.0,
     quality: 'high',
-    speed: 'moderate',
+    speed: 'fast',
   },
   [ModelType.HAIKU_4_5]: {
     name: ModelType.HAIKU_4_5,
     provider: ModelProvider.ANTHROPIC,
     maxTokens: 8192,
     description: 'Fast and efficient for simple tasks',
-    costPerMillionInputTokens: 0.8,
-    costPerMillionOutputTokens: 4.0,
+    costPerMillionInputTokens: 1.0,
+    costPerMillionOutputTokens: 5.0,
     quality: 'medium',
     speed: 'fast',
   },
@@ -106,7 +117,7 @@ export class ModelSelector {
     requiresReasoning?: boolean;
     multiStep?: boolean;
   }): TaskComplexity {
-    // Use Sonnet 4.5 for complex reasoning
+    // Use Opus 5 for complex reasoning
     if (
       task.complexity === 'complex' ||
       task.requiresReasoning ||
@@ -115,7 +126,7 @@ export class ModelSelector {
       task.type === 'chat'
     ) {
       return {
-        model: ModelType.SONNET_4_5,
+        model: ModelType.OPUS_5,
         reasoning: 'Complex task requiring advanced reasoning and tool orchestration',
       };
     }
@@ -134,7 +145,7 @@ export class ModelSelector {
 
     // Default to Sonnet for chat and uncertain cases
     return {
-      model: ModelType.SONNET_4_5,
+      model: ModelType.SONNET_5,
       reasoning: 'Using Sonnet for optimal user experience',
     };
   }
