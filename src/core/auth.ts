@@ -157,7 +157,7 @@ export class ClaudeAuth {
     this.client = null;
 
     if (existsSync(AUTH_FILE)) {
-      await writeFile(AUTH_FILE, JSON.stringify({}));
+      await writeFile(AUTH_FILE, JSON.stringify({}), { mode: 0o600 });
     }
   }
 
@@ -169,7 +169,10 @@ export class ClaudeAuth {
       await mkdir(AUTH_DIR, { recursive: true });
     }
 
-    await writeFile(AUTH_FILE, JSON.stringify(this.authData, null, 2));
+    // The file holds an API key — owner read/write only
+    await writeFile(AUTH_FILE, JSON.stringify(this.authData, null, 2), {
+      mode: 0o600,
+    });
   }
 
   /**

@@ -12,8 +12,16 @@ export interface ClaudeCodeResponse {
 
 export class ClaudeCodeClient {
   private claudeCommand: string;
+  // .cmd files on Windows can only be launched through a shell
+  private useShell = process.platform === 'win32';
 
   constructor(claudeCommand: string = 'claude') {
+    // Reject anything that isn't a plain command name / path: the command is
+    // passed to spawn with shell:true on Windows, so metacharacters would be
+    // interpreted by the shell.
+    if (!/^[\w.\/\\:-]+$/.test(claudeCommand)) {
+      throw new Error(`Invalid claude command: ${claudeCommand}`);
+    }
     // On Windows, use claude.cmd instead of just claude
     if (process.platform === 'win32' && !claudeCommand.includes('.')) {
       this.claudeCommand = `${claudeCommand}.cmd`;
@@ -29,11 +37,9 @@ export class ClaudeCodeClient {
     return new Promise((resolve) => {
       let resolved = false;
 
-      // On Windows, .cmd files require shell: true
-      // This is safe here since we control all arguments
       const process = spawn(this.claudeCommand, ['--version'], {
         stdio: 'pipe',
-        shell: true,
+        shell: this.useShell,
       });
 
       process.on('error', () => {
@@ -97,20 +103,22 @@ export class ClaudeCodeClient {
       let stdout = '';
       let stderr = '';
 
-      // Spawn claude with --print flag for non-interactive mode
-      // Pass prompt via stdin instead of command-line argument
-      // On Windows, .cmd files require shell: true
-      // This is safe since we control all arguments; user input goes via stdin
+      // Spawn claude with --print flag for non-interactive mode.
+      // Prompt goes via stdin. The librarian only needs to answer from the
+      // context in the prompt, so no tools are granted: the prompt is built
+      // from uploaded conversation data and must not be able to run anything.
       const process = spawn(
         this.claudeCommand,
         [
           '--print',
           '--output-format', 'text',
-          '--dangerously-skip-permissions'  // Skip permission prompts for automation
+          // '--tools ""' disables all tools. With shell:true (Windows) args
+          // are joined unquoted, so the empty string must be quoted by hand.
+          '--tools', this.useShell ? '""' : ''
         ],
         {
           stdio: ['pipe', 'pipe', 'pipe'],
-          shell: true,
+          shell: this.useShell,
         }
       );
 
@@ -191,15 +199,15 @@ export class ClaudeCodeClient {
         ? `${context}\n\n---\n\nUser Query: ${prompt}`
         : prompt;
 
-      // Spawn claude with --print flag for pipe mode
-      // On Windows, .cmd files require shell: true
+      // Spawn claude with --print flag for pipe mode. No tools granted — the
+      // prompt contains untrusted uploaded conversation content.
       const process = spawn(this.claudeCommand, [
         '--print',
         '--output-format', 'text',
-        '--dangerously-skip-permissions'
+        '--tools', this.useShell ? '""' : ''
       ], {
         stdio: ['pipe', 'pipe', 'pipe'],
-        shell: true,
+        shell: this.useShell,
       });
 
       // Send prompt to stdin

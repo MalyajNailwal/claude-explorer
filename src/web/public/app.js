@@ -263,6 +263,19 @@ async function handleSearch() {
 }
 
 /**
+ * Escape a value for safe interpolation into HTML.
+ * Escapes quotes too, so it is also safe inside attribute values.
+ */
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
  * Display results
  */
 function displayResults(results, isSearch = false) {
@@ -275,19 +288,21 @@ function displayResults(results, isSearch = false) {
     .map((item, idx) => {
       const conv = isSearch ? item.conversation : item;
       const isSelected = selectedConversations.has(conv.uuid);
+      const uuid = escapeHtml(conv.uuid);
+      const name = escapeHtml(conv.name) || 'Untitled Conversation';
 
       let html = `
-        <div class="result-card ${isSelected ? 'selected' : ''}" data-uuid="${conv.uuid}">
+        <div class="result-card ${isSelected ? 'selected' : ''}" data-uuid="${uuid}">
           <div class="checkbox-wrapper">
             <input type="checkbox"
               class="conv-checkbox"
-              data-uuid="${conv.uuid}"
+              data-uuid="${uuid}"
               ${isSelected ? 'checked' : ''}>
             <div style="flex: 1">
               <div class="result-header">
                 <div>
-                  <div class="result-title" onclick="showDetail('${conv.uuid}')">
-                    ${conv.name || 'Untitled Conversation'}
+                  <div class="result-title" onclick="showDetail('${uuid}')">
+                    ${name}
                   </div>
                   <div class="result-meta">
                     <span>📅 ${new Date(conv.created_at).toLocaleDateString()}</span>
@@ -295,13 +310,13 @@ function displayResults(results, isSearch = false) {
                   </div>
                 </div>
                 <div class="result-actions">
-                  <button class="btn btn-sm" onclick="exportConversation('${conv.uuid}', 'markdown')">
+                  <button class="btn btn-sm" onclick="exportConversation('${uuid}', 'markdown')">
                     📄 MD
                   </button>
-                  <button class="btn btn-sm" onclick="exportConversation('${conv.uuid}', 'json')">
+                  <button class="btn btn-sm" onclick="exportConversation('${uuid}', 'json')">
                     📋 JSON
                   </button>
-                  <button class="btn btn-sm" onclick="exportConversation('${conv.uuid}', 'bundle')">
+                  <button class="btn btn-sm" onclick="exportConversation('${uuid}', 'bundle')">
                     📦 ZIP
                   </button>
                 </div>
@@ -316,7 +331,7 @@ function displayResults(results, isSearch = false) {
               .slice(0, 2)
               .map(
                 (m) =>
-                  `<div style="margin-top: 5px;">Message ${m.messageIndex + 1}: ${m.snippet}</div>`
+                  `<div style="margin-top: 5px;">Message ${m.messageIndex + 1}: ${escapeHtml(m.snippet)}</div>`
               )
               .join('')}
           </div>
@@ -350,23 +365,33 @@ function displayResults(results, isSearch = false) {
 /**
  * Show conversation detail
  */
+// Messages of the conversation currently shown in the detail modal,
+// so copy buttons can reference them by index instead of inlining the text.
+let currentDetailMessages = [];
+
+function copyMessageText(idx, button) {
+  copyToClipboard(currentDetailMessages[idx]?.text || '', button);
+}
+
 async function showDetail(uuid) {
   showLoading();
   try {
-    const response = await fetch(`/api/conversations/${uuid}`);
+    const response = await fetch(`/api/conversations/${encodeURIComponent(uuid)}`);
     const conv = await response.json();
+    currentDetailMessages = conv.chat_messages || [];
+    const safeUuid = escapeHtml(conv.uuid);
 
     detailContent.innerHTML = `
-      <h2>${conv.name || 'Untitled Conversation'}</h2>
+      <h2>${escapeHtml(conv.name) || 'Untitled Conversation'}</h2>
 
       <div class="modal-export-actions">
-        <button class="btn btn-sm" onclick="exportConversation('${uuid}', 'markdown')">
+        <button class="btn btn-sm" onclick="exportConversation('${safeUuid}', 'markdown')">
           📄 Export Markdown
         </button>
-        <button class="btn btn-sm" onclick="exportConversation('${uuid}', 'json')">
+        <button class="btn btn-sm" onclick="exportConversation('${safeUuid}', 'json')">
           📋 Export JSON
         </button>
-        <button class="btn btn-sm" onclick="exportConversation('${uuid}', 'bundle')">
+        <button class="btn btn-sm" onclick="exportConversation('${safeUuid}', 'bundle')">
           📦 Export ZIP
         </button>
       </div>
@@ -375,12 +400,12 @@ async function showDetail(uuid) {
         <p><strong>Created:</strong> ${new Date(conv.created_at).toLocaleString()}</p>
         <p><strong>Updated:</strong> ${new Date(conv.updated_at).toLocaleString()}</p>
         <p><strong>Messages:</strong> ${conv.chat_messages?.length || 0}</p>
-        <p style="font-size: 0.85em; color: #999;"><strong>UUID:</strong> ${conv.uuid}</p>
+        <p style="font-size: 0.85em; color: #999;"><strong>UUID:</strong> ${safeUuid}</p>
       </div>
       ${
         conv.summary
           ? `<div style="margin: 20px 0; padding: 15px; background: #f5f5f5; border-radius: 4px;">
-          <strong>Summary:</strong> ${conv.summary}
+          <strong>Summary:</strong> ${escapeHtml(conv.summary)}
         </div>`
           : ''
       }
@@ -393,12 +418,12 @@ async function showDetail(uuid) {
           <div class="message-preview ${msg.sender === 'human' ? 'message-human' : 'message-assistant'}">
             <div class="message-header">
               <div class="message-sender">
-                ${msg.sender === 'human' ? '👤' : '🤖'} ${msg.sender.toUpperCase()}
+                ${msg.sender === 'human' ? '👤' : '🤖'} ${escapeHtml((msg.sender || '').toUpperCase())}
                 <span class="message-meta">
                   #${idx + 1} • ${new Date(msg.created_at).toLocaleString()}
                 </span>
               </div>
-              <button class="btn-copy" onclick="copyToClipboard(\`${msg.text?.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`, this)">
+              <button class="btn-copy" onclick="copyMessageText(${idx}, this)">
                 📋 Copy
               </button>
             </div>
@@ -529,13 +554,13 @@ async function loadProjects() {
       .map(
         (proj) => `
       <div class="result-card">
-        <div class="result-title">${proj.name}</div>
+        <div class="result-title">${escapeHtml(proj.name)}</div>
         <div class="result-meta">
           <span>📚 ${proj.docs?.length || 0} docs</span>
           <span>${proj.is_private ? '🔒 Private' : '🌐 Public'}</span>
         </div>
         <p style="margin: 10px 0; color: #666;">
-          ${proj.description.substring(0, 200)}${proj.description.length > 200 ? '...' : ''}
+          ${escapeHtml(proj.description.substring(0, 200))}${proj.description.length > 200 ? '...' : ''}
         </p>
       </div>
     `
@@ -679,8 +704,8 @@ function generateTopKeywords(conversations) {
   const container = document.getElementById('top-keywords');
   container.innerHTML = topKeywords
     .map(([word, count]) => `
-      <div class="keyword-tag" onclick="searchKeyword('${word}')">
-        ${word}
+      <div class="keyword-tag" onclick="searchKeyword('${escapeHtml(word)}')">
+        ${escapeHtml(word)}
         <span class="keyword-count">${count}</span>
       </div>
     `)
@@ -881,7 +906,8 @@ function renderMarkdown(text) {
   let html = content
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 
   // Convert code blocks
   html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
@@ -897,8 +923,12 @@ function renderMarkdown(text) {
   // Convert italic
   html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
 
-  // Convert links
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // Convert links — only http(s) URLs, so javascript: links stay inert text
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, label, url) =>
+    /^https?:\/\//i.test(url)
+      ? `<a href="${url}" target="_blank" rel="noopener">${label}</a>`
+      : match
+  );
 
   // Convert line breaks
   html = html.replace(/\n/g, '<br>');
@@ -962,18 +992,18 @@ function renderArtifact(artifact) {
       renderedContent = `
         <div class="artifact-preview">
           <div class="artifact-header">
-            <strong>📄 ${artifact.title}</strong>
+            <strong>📄 ${escapeHtml(artifact.title)}</strong>
             <button class="btn-sm" onclick="toggleArtifact('${artifactId}')">👁️ Toggle</button>
             <button class="btn-sm" onclick="copyArtifactCode('${artifactId}')">📋 Copy Code</button>
           </div>
           <div id="${artifactId}" class="artifact-content">
             <iframe
-              sandbox="allow-scripts allow-same-origin"
+              sandbox="allow-scripts"
               style="width: 100%; min-height: 400px; border: 1px solid #ddd; border-radius: 4px;"
-              srcdoc="${artifact.code.replace(/"/g, '&quot;')}">
+              srcdoc="${escapeHtml(artifact.code)}">
             </iframe>
           </div>
-          <textarea id="${artifactId}-code" style="display:none;">${artifact.code}</textarea>
+          <textarea id="${artifactId}-code" style="display:none;">${escapeHtml(artifact.code)}</textarea>
         </div>
       `;
       break;
@@ -984,16 +1014,19 @@ function renderArtifact(artifact) {
       renderedContent = `
         <div class="artifact-preview">
           <div class="artifact-header">
-            <strong>🎨 ${artifact.title}</strong>
+            <strong>🎨 ${escapeHtml(artifact.title)}</strong>
             <button class="btn-sm" onclick="toggleArtifact('${artifactId}')">👁️ Toggle</button>
             <button class="btn-sm" onclick="copyArtifactCode('${artifactId}')">📋 Copy Code</button>
           </div>
           <div id="${artifactId}" class="artifact-content">
-            <div style="padding: 20px; background: white; border: 1px solid #ddd; border-radius: 4px;">
-              ${artifact.code}
-            </div>
+            <!-- SVG can carry scripts/event handlers, so render it in a sandboxed iframe -->
+            <iframe
+              sandbox=""
+              style="width: 100%; min-height: 300px; background: white; border: 1px solid #ddd; border-radius: 4px;"
+              srcdoc="${escapeHtml(artifact.code)}">
+            </iframe>
           </div>
-          <textarea id="${artifactId}-code" style="display:none;">${artifact.code}</textarea>
+          <textarea id="${artifactId}-code" style="display:none;">${escapeHtml(artifact.code)}</textarea>
         </div>
       `;
       break;
@@ -1004,7 +1037,7 @@ function renderArtifact(artifact) {
       renderedContent = `
         <div class="artifact-preview">
           <div class="artifact-header">
-            <strong>📊 ${artifact.title}</strong>
+            <strong>📊 ${escapeHtml(artifact.title)}</strong>
             <button class="btn-sm" onclick="toggleArtifact('${artifactId}')">👁️ Toggle</button>
             <button class="btn-sm" onclick="copyArtifactCode('${artifactId}')">📋 Copy Code</button>
           </div>
@@ -1014,7 +1047,7 @@ function renderArtifact(artifact) {
               <em>Note: Mermaid diagram rendering requires the Mermaid library. Code shown above.</em>
             </p>
           </div>
-          <textarea id="${artifactId}-code" style="display:none;">${artifact.code}</textarea>
+          <textarea id="${artifactId}-code" style="display:none;">${escapeHtml(artifact.code)}</textarea>
         </div>
       `;
       break;
@@ -1026,7 +1059,7 @@ function renderArtifact(artifact) {
       renderedContent = `
         <div class="artifact-preview">
           <div class="artifact-header">
-            <strong>⚛️ ${artifact.title}</strong>
+            <strong>⚛️ ${escapeHtml(artifact.title)}</strong>
             <button class="btn-sm" onclick="toggleArtifact('${artifactId}')">👁️ Toggle</button>
             <button class="btn-sm" onclick="copyArtifactCode('${artifactId}')">📋 Copy Code</button>
           </div>
@@ -1036,7 +1069,7 @@ function renderArtifact(artifact) {
               <em>React component code. To use: copy and integrate into your React project.</em>
             </p>
           </div>
-          <textarea id="${artifactId}-code" style="display:none;">${artifact.code}</textarea>
+          <textarea id="${artifactId}-code" style="display:none;">${escapeHtml(artifact.code)}</textarea>
         </div>
       `;
       break;
@@ -1046,14 +1079,14 @@ function renderArtifact(artifact) {
       renderedContent = `
         <div class="artifact-preview">
           <div class="artifact-header">
-            <strong>📝 ${artifact.title}</strong>
+            <strong>📝 ${escapeHtml(artifact.title)}</strong>
             <button class="btn-sm" onclick="toggleArtifact('${artifactId}')">👁️ Toggle</button>
             <button class="btn-sm" onclick="copyArtifactCode('${artifactId}')">📋 Copy Code</button>
           </div>
           <div id="${artifactId}" class="artifact-content">
             <pre class="code-block"><code>${artifact.code.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>
           </div>
-          <textarea id="${artifactId}-code" style="display:none;">${artifact.code}</textarea>
+          <textarea id="${artifactId}-code" style="display:none;">${escapeHtml(artifact.code)}</textarea>
         </div>
       `;
   }
@@ -1301,7 +1334,7 @@ function sleep(ms) {
 async function sendMessageWithRetry(message, retries = 3, typingId = null) {
   // Get selected model and provider
   const modelSelector = document.getElementById('model-selector');
-  const selectedModel = modelSelector ? modelSelector.value : 'claude-sonnet-4-5-20250514';
+  const selectedModel = modelSelector ? modelSelector.value : 'claude-opus-5';
   
   // Determine provider based on model ID
   const provider = selectedModel.startsWith('claude-') ? 'anthropic' : 'openrouter';
@@ -1394,7 +1427,7 @@ async function sendMessage() {
 
   // Get selected model and provider
   const modelSelector = document.getElementById('model-selector');
-  const selectedModel = modelSelector ? modelSelector.value : 'claude-sonnet-4-5-20250514';
+  const selectedModel = modelSelector ? modelSelector.value : 'claude-opus-5';
   const provider = selectedModel.startsWith('claude-') ? 'anthropic' : 'openrouter';
 
   // Check auth only for Anthropic (Claude Code requires authentication)
@@ -2139,7 +2172,10 @@ async function loadModelOptions() {
   }
   
   try {
-    const response = await fetch(`/api/models${openRouterKey ? `?openrouter_key=${encodeURIComponent(openRouterKey)}` : ''}`);
+    // Send the key in a header — query strings leak into logs and history
+    const response = await fetch('/api/models', {
+      headers: openRouterKey ? { 'x-openrouter-key': openRouterKey } : {},
+    });
     const data = await response.json();
     
     if (modelSelector && data.models) {

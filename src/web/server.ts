@@ -11,6 +11,7 @@ import { MarkdownExporter } from '../core/exporters/markdown.js';
 import { JSONExporter } from '../core/exporters/json.js';
 import { BundleExporter } from '../core/exporters/bundle.js';
 import { ClaudeCodeLibrarian } from '../core/claude-code-librarian.js';
+import { ContextRetriever } from '../core/retriever.js';
 import { tmpdir } from 'os';
 import multer from 'multer';
 import AdmZip from 'adm-zip';
@@ -22,6 +23,9 @@ const __dirname = dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+// Bind loopback only by default: the archive and the AI endpoints must not be
+// reachable from the LAN. Set HOST=0.0.0.0 explicitly to expose the server.
+const HOST = process.env.HOST || '127.0.0.1';
 
 // Middleware
 app.use(express.json());
@@ -30,6 +34,7 @@ app.use(express.static(join(__dirname, 'public')));
 // Global state
 let parser: ClaudeDataParser;
 let indexer: SearchIndexer;
+let retriever: ContextRetriever;
 let filterEngine: FilterEngine;
 let librarian: ClaudeCodeLibrarian | null = null;
 let dataPath: string;
@@ -69,6 +74,7 @@ async function initializeData(path: string) {
 
     indexer = new SearchIndexer();
     indexer.buildIndex(parser.getConversationsWithMessages());
+    retriever = new ContextRetriever(indexer);
 
     filterEngine = new FilterEngine();
 
@@ -81,6 +87,7 @@ async function initializeData(path: string) {
     
     // Initialize with empty state
     indexer = new SearchIndexer();
+    retriever = new ContextRetriever(indexer);
     filterEngine = new FilterEngine();
   }
 
@@ -93,6 +100,15 @@ async function initializeData(path: string) {
     console.log(`⚠ AI Assistant not available (Claude Code not found or not authenticated)`);
     console.log(`   To enable: Install Claude Code and run 'claude login'`);
   }
+}
+
+/**
+ * Parse a numeric query param, clamped to [1, max]. Falls back on NaN.
+ */
+function parseLimit(raw: unknown, fallback: number, max = 500): number {
+  const n = parseInt(String(raw ?? ''), 10);
+  if (Number.isNaN(n)) return fallback;
+  return Math.min(Math.max(n, 1), max);
 }
 
 /**
@@ -115,7 +131,7 @@ app.get('/api/stats', (_req: Request, res: Response) => {
 app.get('/api/search', (req: Request, res: Response) => {
   try {
     const query = req.query.q as string;
-    const limit = parseInt((req.query.limit as string) || '20');
+    const limit = parseLimit(req.query.limit, 20);
 
     if (!query) {
       return res.status(400).json({ error: 'Query parameter "q" is required' });
@@ -133,7 +149,7 @@ app.get('/api/search', (req: Request, res: Response) => {
 // List conversations
 app.get('/api/conversations', (req: Request, res: Response) => {
   try {
-    const limit = parseInt((req.query.limit as string) || '50');
+    const limit = parseLimit(req.query.limit, 50);
     const sortBy = (req.query.sort as 'date' | 'messages' | 'name') || 'date';
     const messagesOnly = req.query.messagesOnly === 'true';
 
@@ -331,13 +347,8 @@ app.post('/api/assistant/chat', async (req: Request, res: Response) => {
       console.warn('[AI Assistant] Failed to build context:', error);
     }
 
-    // If OpenRouter provider and API key provided, use OpenRouter directly
-    if (provider === 'openrouter' && apiKey) {
-      const { OpenRouterClient } = await import('../core/openrouter-client.js');
-      const client = new OpenRouterClient(apiKey);
-      
-      const systemPrompt = conversationContext
-        ? `You are an AI assistant with access to the user's Claude.ai conversation history. Use the provided context to answer questions about their past conversations.
+    const systemPrompt = conversationContext
+      ? `You are an AI assistant with access to the user's Claude.ai conversation history. Use the provided context to answer questions about their past conversations.
 
 ${conversationContext}
 
@@ -347,7 +358,37 @@ INSTRUCTIONS:
 - If the context doesn't contain relevant info, say so honestly
 - Cite which conversation you're referencing when possible
 - Be concise and helpful`
-        : 'You are a helpful AI assistant for Claude Explorer. Help users search, explore, and understand their Claude conversation history.';
+      : 'You are a helpful AI assistant for Claude Explorer. Help users search, explore, and understand their Claude conversation history.';
+
+    // Anthropic key entered in the UI — call the API directly via the SDK
+    if (provider === 'anthropic' && apiKey) {
+      const { default: Anthropic } = await import('@anthropic-ai/sdk');
+      const client = new Anthropic({ apiKey });
+
+      const response = await client.messages.create({
+        model: model || 'claude-opus-5',
+        max_tokens: 4096,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: message }],
+      });
+
+      const text = response.content
+        .filter((block): block is Extract<typeof block, { type: 'text' }> => block.type === 'text')
+        .map((block) => block.text)
+        .join('\n');
+
+      return res.json({
+        response: text || 'No response',
+        model: response.model,
+        tokensUsed: response.usage.input_tokens + response.usage.output_tokens,
+        contextUsed: !!conversationContext,
+      });
+    }
+
+    // If OpenRouter provider and API key provided, use OpenRouter directly
+    if (provider === 'openrouter' && apiKey) {
+      const { OpenRouterClient } = await import('../core/openrouter-client.js');
+      const client = new OpenRouterClient(apiKey);
 
       const messages = [
         {
@@ -421,176 +462,18 @@ INSTRUCTIONS:
     console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
     return res.status(500).json({
       error: error instanceof Error ? error.message : 'Unknown error',
-      details: error instanceof Error ? error.stack : undefined,
     });
   }
 });
 
 /**
- * Smart Context Builder - Multi-signal scoring + intelligent extraction
+ * Build conversation context for the AI assistant. Ranking, snippet
+ * extraction, and formatting live in ContextRetriever (src/core/retriever.ts)
+ * so they are shared and unit-testable.
  */
 async function buildConversationContext(query: string, maxResults: number = 5): Promise<string> {
-  if (!parser) return '';
-
-  const conversations = parser.getConversationsWithMessages();
-  if (conversations.length === 0) return '';
-
-  const queryLower = query.toLowerCase();
-  const queryWords = queryLower.split(/\s+/).filter(w => w.length > 3);
-  
-  // Extract date intent from query (e.g., "last week", "March", "2024")
-  const dateFilter = extractDateIntent(query);
-
-  // Score conversations with multi-signal approach
-  const scored = conversations.map(conv => {
-    let score = 0;
-    const name = conv.name?.toLowerCase() || '';
-    const summary = conv.summary?.toLowerCase() || '';
-    const messages = conv.chat_messages || [];
-    const createdDate = new Date(conv.created_at);
-    const daysAgo = (Date.now() - createdDate.getTime()) / (1000 * 60 * 60 * 24);
-
-    // 1. Name match (high weight - 10x)
-    if (name.includes(queryLower)) score += 10;
-    queryWords.forEach(word => {
-      if (name.includes(word)) score += 3;
-    });
-
-    // 2. Summary match (medium weight - 5x)
-    if (summary.includes(queryLower)) score += 5;
-    queryWords.forEach(word => {
-      if (summary.includes(word)) score += 2;
-    });
-
-    // 3. Message content match (variable weight)
-    const relevantMessages: Array<{ msg: any; idx: number; score: number }> = [];
-    messages.forEach((msg, idx) => {
-      const text = (msg.text || '').toLowerCase();
-      let msgScore = 0;
-      
-      if (text.includes(queryLower)) msgScore += 5;
-      queryWords.forEach(word => {
-        if (text.includes(word)) msgScore += 2;
-      });
-      
-      if (msgScore > 0) {
-        relevantMessages.push({ msg, idx, score: msgScore });
-        score += msgScore;
-      }
-    });
-
-    // 4. Recency boost (recent conversations get boost)
-    if (daysAgo < 7) score += 3;
-    else if (daysAgo < 30) score += 2;
-    else if (daysAgo < 90) score += 1;
-
-    // 5. Depth signal (longer conversations = more important)
-    if (messages.length > 20) score += 2;
-    else if (messages.length > 10) score += 1;
-
-    // 6. Date filter match
-    if (dateFilter && !matchesDateFilter(createdDate, dateFilter)) {
-      score = 0; // Exclude if doesn't match date filter
-    }
-
-    return { 
-      conv, 
-      score, 
-      relevantMessages: relevantMessages.sort((a, b) => b.score - a.score).slice(0, 3)
-    };
-  });
-
-  // Sort by score, take top results
-  const top = scored
-    .filter(s => s.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, maxResults);
-
-  if (top.length === 0) return '';
-
-  // Format context with smart extraction
-  const contextParts = top.map(({ conv, score, relevantMessages }) => {
-    const messages = conv.chat_messages || [];
-    const date = new Date(conv.created_at);
-    const dateStr = date.toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'short', 
-      day: 'numeric' 
-    });
-
-    // Build key points from relevant messages
-    const keyPoints = relevantMessages.map(({ msg }) => {
-      const sender = msg.sender === 'human' ? 'You' : 'AI';
-      const text = (msg.text || '').trim();
-      // Truncate long messages but keep context
-      const truncated = text.length > 300 ? text.substring(0, 300) + '...' : text;
-      return `• ${sender}: ${truncated}`;
-    });
-
-    const pointsStr = keyPoints.length > 0 
-      ? keyPoints.join('\n')
-      : `• ${messages.length} messages, no direct match found`;
-
-    return `### "${conv.name || 'Untitled'}" (${dateStr})
-**Relevance**: ${'★'.repeat(Math.min(5, Math.ceil(score / 5)))}${'☆'.repeat(5 - Math.min(5, Math.ceil(score / 5)))} (${score} pts)
-**Messages**: ${messages.length}
-
-${conv.summary ? `**Summary**: ${conv.summary}\n` : ''}
-**Key Points**:
-${pointsStr}
-
----`;
-  });
-
-  return `USER'S RELEVANT CONVERSATIONS (use these to answer):\n\n` + contextParts.join('\n');
-}
-
-/**
- * Extract date intent from query
- */
-function extractDateIntent(query: string): { type: 'recent' | 'month' | 'year'; value?: string } | null {
-  const lower = query.toLowerCase();
-  
-  if (lower.includes('last week') || lower.includes('recent') || lower.includes('today') || lower.includes('yesterday')) {
-    return { type: 'recent' };
-  }
-  
-  const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
-  for (const month of months) {
-    if (lower.includes(month)) {
-      return { type: 'month', value: month };
-    }
-  }
-  
-  const yearMatch = lower.match(/\b(20\d{2}|19\d{2})\b/);
-  if (yearMatch) {
-    return { type: 'year', value: yearMatch[1] };
-  }
-  
-  return null;
-}
-
-/**
- * Check if date matches filter
- */
-function matchesDateFilter(date: Date, filter: { type: string; value?: string }): boolean {
-  const now = new Date();
-  
-  if (filter.type === 'recent') {
-    const daysAgo = (now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24);
-    return daysAgo <= 7;
-  }
-  
-  if (filter.type === 'month' && filter.value) {
-    const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
-    return date.getMonth() === months.indexOf(filter.value.toLowerCase());
-  }
-  
-  if (filter.type === 'year' && filter.value) {
-    return date.getFullYear() === parseInt(filter.value);
-  }
-  
-  return true;
+  if (!retriever) return '';
+  return retriever.buildContext(query, maxResults);
 }
 
 /**
@@ -787,28 +670,38 @@ app.get('/api/models', async (req: Request, res: Response) => {
     
     const models = [];
     
-    // Add Anthropic models
+    // Add Anthropic models (IDs are the dateless aliases the API expects)
     models.push({
-      id: 'claude-sonnet-4-5-20250514',
-      name: 'Claude Sonnet 4.5',
+      id: 'claude-opus-5',
+      name: 'Claude Opus 5',
       provider: ModelProvider.ANTHROPIC,
       description: 'Most capable model for complex reasoning',
       quality: 'high',
       speed: 'moderate',
+      cost: '$5-25 per million tokens',
+    });
+    models.push({
+      id: 'claude-sonnet-5',
+      name: 'Claude Sonnet 5',
+      provider: ModelProvider.ANTHROPIC,
+      description: 'Best balance of speed and intelligence',
+      quality: 'high',
+      speed: 'fast',
       cost: '$3-15 per million tokens',
     });
     models.push({
-      id: 'claude-haiku-4-5-20250514',
+      id: 'claude-haiku-4-5',
       name: 'Claude Haiku 4.5',
       provider: ModelProvider.ANTHROPIC,
       description: 'Fast and efficient for simple tasks',
       quality: 'medium',
       speed: 'fast',
-      cost: '$0.8-4 per million tokens',
+      cost: '$1-5 per million tokens',
     });
 
-    // Add OpenRouter models if API key is available
-    const openRouterKey = req.query.openrouter_key as string;
+    // Add OpenRouter models if API key is available.
+    // The key travels in a header — query strings end up in logs and history.
+    const openRouterKey = req.get('x-openrouter-key');
     if (openRouterKey) {
       try {
         const client = new OpenRouterClient(openRouterKey);
@@ -908,7 +801,27 @@ app.post('/api/validate-key', async (req: Request, res: Response) => {
       return res.json({ valid: isValid });
     }
 
-    // Add other provider validation here
+    if (provider === 'anthropic') {
+      const { default: Anthropic } = await import('@anthropic-ai/sdk');
+      const client = new Anthropic({ apiKey });
+      try {
+        // Minimal request just to exercise authentication
+        await client.messages.create({
+          model: 'claude-haiku-4-5',
+          max_tokens: 1,
+          messages: [{ role: 'user', content: 'ping' }],
+        });
+        return res.json({ valid: true });
+      } catch (err) {
+        const { AuthenticationError } = await import('@anthropic-ai/sdk');
+        if (err instanceof AuthenticationError) {
+          return res.json({ valid: false });
+        }
+        // Key authenticated but the request failed for another reason
+        return res.json({ valid: true });
+      }
+    }
+
     return res.json({ valid: false, error: 'Unknown provider' });
   } catch (error) {
     return res.status(500).json({
@@ -924,9 +837,12 @@ export async function startServer(path: string) {
   try {
     await initializeData(path);
 
-    app.listen(PORT, () => {
+    app.listen(Number(PORT), HOST, () => {
       console.log(`\n🚀 Claude Explorer running at http://localhost:${PORT}`);
       console.log(`   Data path: ${path}`);
+      if (HOST !== '127.0.0.1' && HOST !== 'localhost') {
+        console.log(`   ⚠ Listening on ${HOST} — server is reachable from the network`);
+      }
       console.log(`\n   Press Ctrl+C to stop\n`);
     });
   } catch (error) {
