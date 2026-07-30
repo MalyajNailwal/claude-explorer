@@ -4,6 +4,7 @@
  */
 import { ClaudeCodeClient } from './claude-code-client.js';
 import { AgentTools } from './agent-tools.js';
+import { extractQueryTerms } from './retriever.js';
 
 export interface AgentResponse {
   message: string;
@@ -177,47 +178,21 @@ ${context ? '# Context Data:\n\n' + context + '\n\n' : ''}`;
   }
 
   /**
-   * Extract search terms from user message
+   * Extract search terms from user message.
+   * Quoted phrases are kept whole; the rest of the message contributes its
+   * significant words — retrieval works for any topic, not a fixed list.
    */
   private extractSearchTerms(message: string): string[] {
-    // Simple extraction - look for quoted strings and important keywords
     const terms: string[] = [];
 
-    // Extract quoted strings
     const quoted = message.match(/"([^"]+)"/g);
     if (quoted) {
       terms.push(...quoted.map((q) => q.replace(/"/g, '')));
     }
 
-    // Extract topic keywords
-    const topicKeywords = [
-      'React',
-      'TypeScript',
-      'JavaScript',
-      'Python',
-      'authentication',
-      'API',
-      'database',
-      'Docker',
-      'Kubernetes',
-      'AWS',
-      'Azure',
-      'deployment',
-      'testing',
-      'bug',
-      'feature',
-      'refactor',
-      'optimization',
-    ];
+    terms.push(...extractQueryTerms(message));
 
-    const lowerMessage = message.toLowerCase();
-    for (const keyword of topicKeywords) {
-      if (lowerMessage.includes(keyword.toLowerCase())) {
-        terms.push(keyword);
-      }
-    }
-
-    return [...new Set(terms)]; // Remove duplicates
+    return [...new Set(terms)];
   }
 
   /**
