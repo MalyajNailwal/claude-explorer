@@ -53,3 +53,7 @@ vxrail_*.txt
 SESSION-SUMMARY.md
 BUNDLE-SUMMARY.md
 docker-compose.override.yml
+
+# Exported conversation dumps — never commit these
+markdown
+*.export.md
