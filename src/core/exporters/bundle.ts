@@ -1,7 +1,7 @@
 /**
  * Bundle exporter - creates ZIP archives with conversations
  */
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import { createWriteStream } from 'fs';
 import { Conversation, Project } from '../types.js';
 import { MarkdownExporter } from './markdown.js';
@@ -18,7 +18,7 @@ export class BundleExporter {
     conversation: Conversation,
     outputPath: string
   ): Promise<void> {
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const archive = new ZipArchive({ zlib: { level: 9 } });
     const output = createWriteStream(outputPath);
 
     return new Promise((resolve, reject) => {
@@ -70,7 +70,7 @@ export class BundleExporter {
     outputPath: string,
     title = 'Claude Conversations Export'
   ): Promise<void> {
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const archive = new ZipArchive({ zlib: { level: 9 } });
     const output = createWriteStream(outputPath);
 
     return new Promise((resolve, reject) => {
@@ -139,7 +139,7 @@ export class BundleExporter {
     project: Project,
     outputPath: string
   ): Promise<void> {
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const archive = new ZipArchive({ zlib: { level: 9 } });
     const output = createWriteStream(outputPath);
 
     return new Promise((resolve, reject) => {
